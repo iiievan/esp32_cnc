@@ -1,5 +1,5 @@
 dependencies:
-  ethernet_init:
-    version: '*'
+  espressif/w5500: ^2.0.0
   idf:
     version: '>=5.0'
+  espp/interrupt: ^1.1.4

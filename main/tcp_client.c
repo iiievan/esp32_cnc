@@ -9,12 +9,17 @@
 #include "freertos/task.h"
 #include "esp_netif.h"
 #include "esp_eth.h"
+#include "esp_mac.h"
 #include "esp_event.h"
 #include "esp_log.h"
-#include "ethernet_init.h"
+#include "esp_eth_phy_w5500.h"
+#include "esp_eth_mac_w5500.h"
+#include "driver/spi_master.h"
+#include "driver/gpio.h"
 #include "lwip/sockets.h"
 #include "sdkconfig.h"
 #include "errno.h"
+//#include "nvs_flash.h" 
 
 #define INVALID_SOCKET      -1
 #define SOCKET_MAX_LENGTH   1440 // at least equal to MSS
@@ -22,6 +27,14 @@
 
 static const char *TAG = "tcp_client";
 static SemaphoreHandle_t got_ip_sem;
+
+// Waveshare ESP32-S3-ETH pins to W5500
+#define PIN_SPI_MOSI        (11)
+#define PIN_SPI_MISO        (12)
+#define PIN_SPI_SCLK        (13)
+#define PIN_SPI_CS          (14)
+#define PIN_W5500_INT       (10)
+#define PIN_W5500_RST       (9)
 
 /** Event handler for IP_EVENT_ETH_GOT_IP */
 static void got_ip_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *data)
@@ -38,63 +51,91 @@ static void got_ip_event_handler(void *arg, esp_event_base_t event_base, int32_t
     xSemaphoreGive(got_ip_sem);
 }
 
+// Функция для генерации локального MAC-адреса на основе базового MAC ESP32
+static void get_local_mac(uint8_t *mac_out) 
+{
+    uint8_t base_mac[6];
+    esp_efuse_mac_get_default(base_mac);
+    // Генерируем локально-администрируемый MAC (второй бит первого байта = 1)
+    base_mac[0] |= 0x02; 
+    // Копируем в выходной буфер
+    memcpy(mac_out, base_mac, 6);
+}
+
 void app_main(void)
 {
-    // Create default event loop that running in background
+    //// 1. Инициализация NVS (Необходима для работы DHCP и сетевого стека)
+    //esp_err_t ret = nvs_flash_init();
+    //if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+    //    ESP_ERROR_CHECK(nvs_flash_erase());
+    //    ret = nvs_flash_init();
+    //}
+    //ESP_ERROR_CHECK(ret);
+
+    // 2. Инициализация GPIO ISR (для обработки прерываний от W5500)
+    ESP_ERROR_CHECK(gpio_install_isr_service(0));
+
+    // 3. Создание event loop и семафора
     ESP_ERROR_CHECK(esp_event_loop_create_default());
-    // Initialize semaphore
     got_ip_sem = xSemaphoreCreateBinary();
-    if (got_ip_sem == NULL) {
+    if (got_ip_sem == NULL) 
+    {
         ESP_LOGE(TAG, "Failed to create semaphore");
         return;
     }
 
-    // Initialize Ethernet driver
-    uint8_t eth_port_cnt = 0;
-    esp_eth_handle_t *eth_handles;
-    ESP_ERROR_CHECK(ethernet_init_all(&eth_handles, &eth_port_cnt));
-    // Initialize TCP/IP network interface aka the esp-netif (should be called only once in application)
+    // 4. Инициализация SPI шины (БЕЗ флага HALFDUPLEX)
+    spi_bus_config_t buscfg = 
+    {
+        .mosi_io_num = PIN_SPI_MOSI,
+        .miso_io_num = PIN_SPI_MISO,
+        .sclk_io_num = PIN_SPI_SCLK,
+        .quadwp_io_num = -1,
+        .quadhd_io_num = -1,
+        .max_transfer_sz = 4096,
+    };
+    ESP_ERROR_CHECK(spi_bus_initialize(SPI2_HOST, &buscfg, SPI_DMA_CH_AUTO));
+
+    // 5. Конфигурация SPI устройства (полностью как в примере Espressif)
+    spi_device_interface_config_t spi_devcfg = {
+        .mode = 0,
+        .clock_speed_hz = 25 * 1000 * 1000, // 25 МГц
+        .spics_io_num = PIN_SPI_CS,
+        .queue_size = 20,
+    };
+
+    // 6. Конфигурация MAC (W5500) - используем макрос ETH_W5500_DEFAULT_CONFIG
+    eth_w5500_config_t w5500_config = ETH_W5500_DEFAULT_CONFIG(SPI2_HOST, &spi_devcfg);
+    w5500_config.base.int_gpio_num = PIN_W5500_INT; // Задаем пин прерывания
+    
+    eth_mac_config_t mac_config = ETH_MAC_DEFAULT_CONFIG();
+    esp_eth_mac_t *mac = esp_eth_mac_new_w5500(&w5500_config, &mac_config);
+
+    // 7. Конфигурация PHY (встроен в W5500)
+    eth_phy_config_t phy_config = ETH_PHY_DEFAULT_CONFIG();
+    phy_config.phy_addr = 0;
+    phy_config.reset_gpio_num = -1; // Сброс через MAC, не нужен отдельный пин
+
+    esp_eth_phy_t *phy = esp_eth_phy_new_w5500(&phy_config);
+
+    // 8. Установка драйвера Ethernet
+    esp_eth_config_t eth_config = ETH_DEFAULT_CONFIG(mac, phy);
+    esp_eth_handle_t eth_handle = NULL;
+    ESP_ERROR_CHECK(esp_eth_driver_install(&eth_config, &eth_handle));
+
+        uint8_t local_mac[6];
+    get_local_mac(local_mac);
+    ESP_ERROR_CHECK(esp_eth_ioctl(eth_handle, ETH_CMD_S_MAC_ADDR, local_mac));
+
+    // 9. Инициализация сетевого интерфейса и привязка
     ESP_ERROR_CHECK(esp_netif_init());
+    esp_netif_config_t cfg = ESP_NETIF_DEFAULT_ETH();
+    esp_netif_t *eth_netif = esp_netif_new(&cfg);
+    ESP_ERROR_CHECK(esp_netif_attach(eth_netif, esp_eth_new_netif_glue(eth_handle)));
 
-    // Create instance(s) of esp-netif for Ethernet(s)
-    if (eth_port_cnt == 1) {
-        // Use ESP_NETIF_DEFAULT_ETH when just one Ethernet interface is used and you don't need to modify
-        // default esp-netif configuration parameters.
-        esp_netif_config_t cfg = ESP_NETIF_DEFAULT_ETH();
-        esp_netif_t *eth_netif = esp_netif_new(&cfg);
-        // Attach Ethernet driver to TCP/IP stack
-        ESP_ERROR_CHECK(esp_netif_attach(eth_netif, esp_eth_new_netif_glue(eth_handles[0])));
-    } else {
-        // Use ESP_NETIF_INHERENT_DEFAULT_ETH when multiple Ethernet interfaces are used and so you need to modify
-        // esp-netif configuration parameters for each interface (name, priority, etc.).
-        esp_netif_inherent_config_t esp_netif_config = ESP_NETIF_INHERENT_DEFAULT_ETH();
-        esp_netif_config_t cfg_spi = {
-            .base = &esp_netif_config,
-            .stack = ESP_NETIF_NETSTACK_DEFAULT_ETH
-        };
-
-        char if_key_str[10];
-        char if_desc_str[10];
-        for (int i = 0; i < eth_port_cnt; i++) {
-            sprintf(if_key_str, "ETH_%d", i);
-            sprintf(if_desc_str, "eth%d", i);
-            esp_netif_config.if_key = if_key_str;
-            esp_netif_config.if_desc = if_desc_str;
-            esp_netif_config.route_prio -= i * 5;
-            esp_netif_t *eth_netif = esp_netif_new(&cfg_spi);
-
-            // Attach Ethernet driver to TCP/IP stack
-            ESP_ERROR_CHECK(esp_netif_attach(eth_netif, esp_eth_new_netif_glue(eth_handles[i])));
-        }
-    }
-
-    // Register user defined event handers
+    // 10. Регистрация обработчиков событий и запуск
     ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_ETH_GOT_IP, &got_ip_event_handler, NULL));
-
-    // Start Ethernet driver state machine
-    for (int i = 0; i < eth_port_cnt; i++) {
-        ESP_ERROR_CHECK(esp_eth_start(eth_handles[i]));
-    }
+    ESP_ERROR_CHECK(esp_eth_start(eth_handle));
 
     int transmission_cnt = 0;
     int client_fd = INVALID_SOCKET;
