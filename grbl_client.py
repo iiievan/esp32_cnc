@@ -1,33 +1,44 @@
 import socket
 import time
+import math
 
-# Настройки
-ESP32_IP = "192.168.1.85"   # IP вашей ESP32
+ESP32_IP = "192.168.1.85"
 ESP32_PORT = 8080
 
-# Создаем UDP сокет
-sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-
-# Команды, которые мы будем отправлять (похожи на GRBL)
-commands = [
-    "G1 X10 Y20\n",
-    "G1 X-10 Y-20\n",
-    "M5\n",  # Stop
-    "G28\n"  # Home
-]
-
-for cmd in commands:
-    print(f"Sending: {cmd.strip()}")
-    sock.sendto(cmd.encode(), (ESP32_IP, ESP32_PORT))
+def send_commands(commands):
+    """Отправляет команды и выводит ответы"""
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     
-    # Ожидаем ответ от ESP32
-    sock.settimeout(2)  # Таймаут 2 секунды
-    try:
-        data, _ = sock.recvfrom(1024)
-        print(f"Received from ESP32: {data.decode().strip()}")
-    except socket.timeout:
-        print("Timeout! No response from ESP32")
+    for cmd in commands:
+        print(f"Sending: {cmd}")
+        sock.sendto((cmd + "\n").encode(), (ESP32_IP, ESP32_PORT))
+        
+        sock.settimeout(1)
+        try:
+            data, _ = sock.recvfrom(1024)
+            print(f"  -> {data.decode().strip()}")
+        except socket.timeout:
+            print("  -> Timeout")
+        
+        time.sleep(0.05)  # Небольшая задержка
     
-    time.sleep(1)  # Пауза между командами
+    sock.close()
 
-sock.close()
+# Генерируем круг из 72 точек
+radius = 10
+segments = 72
+commands = ["G90"]  # Абсолютные координаты
+
+for i in range(segments + 1):
+    angle = 2 * math.pi * i / segments
+    x = radius * math.cos(angle)
+    y = radius * math.sin(angle)
+    if i == 0:
+        commands.append(f"G1 X{x:.3f} Y{y:.3f} F100")
+    else:
+        commands.append(f"G1 X{x:.3f} Y{y:.3f}")
+
+commands.append("G1 X0 Y0")  # Возврат в центр
+
+print(f"Sending {len(commands)} commands for circle...")
+send_commands(commands)

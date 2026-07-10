@@ -1,6 +1,8 @@
 /*
  * UDP GRBL-like Server for ESP32-S3-ETH (W5500)
  */
+#include "grbl_queue.h"
+#include "grbl_parser.h"
 #include <stdio.h>
 #include <string.h>
 #include "freertos/FreeRTOS.h"
@@ -23,6 +25,7 @@
 
 static const char *TAG = "udp_grbl_server";
 static SemaphoreHandle_t got_ip_sem;
+static grbl_queue_t cmd_queue;
 
 // Waveshare ESP32-S3-ETH pins to W5500
 #define PIN_SPI_MOSI        (11)
@@ -56,12 +59,103 @@ static void get_local_mac(uint8_t *mac_out)
     memcpy(mac_out, base_mac, 6);
 }
 
+static void udp_server_task(void *arg)
+{
+    int server_fd = socket(AF_INET, SOCK_DGRAM, 0); // UDP socket
+    if (server_fd < 0) 
+    {
+        ESP_LOGE(TAG, "Failed to create UDP socket: errno %d", errno);
+        return;
+    }
+
+    struct sockaddr_in server_addr;
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_addr.s_addr = INADDR_ANY; // Listen on any interfaces
+    server_addr.sin_port = htons(8080);       // Port 8080
+
+    if (bind(server_fd, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) 
+    {
+        ESP_LOGE(TAG, "Failed to bind UDP socket: errno %d", errno);
+        close(server_fd);
+        return;
+    }
+
+    ESP_LOGI(TAG, "UDP Server listening on port 8080");
+
+    char rx_buffer[UDP_BUFFER_SIZE];
+    struct sockaddr_in client_addr;
+    socklen_t client_addr_len = sizeof(client_addr);
+    
+    grbl_queue_init(&cmd_queue);
+
+    while (1) 
+    {
+        // Wait CMD
+        int len = recvfrom(server_fd, rx_buffer, UDP_BUFFER_SIZE - 1, 0, 
+                           (struct sockaddr *)&client_addr, &client_addr_len);
+        
+        if (len < 0) {
+            ESP_LOGE(TAG, "Error receiving UDP data: errno %d", errno);
+            continue;
+        }
+
+        rx_buffer[len] = '\0'; 
+        ESP_LOGI(TAG, "Received %d bytes from %s:%d: %s", len, 
+                 inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port), rx_buffer);
+
+        // Parce CMD
+        grbl_command_t cmd;
+        parsed_command_t parsed;
+        strcpy(cmd.command, rx_buffer);
+        cmd.is_motion = 0;
+        cmd.is_urgent = 0;
+
+        if (grbl_parse(rx_buffer, &parsed)) 
+        {
+            if (parsed.type == CMD_MOTION_LINEAR || parsed.type == CMD_MOTION_ARC) 
+            {
+                cmd.is_motion   = 1;
+                cmd.target_x    = parsed.has_x ? parsed.x : 0;
+                cmd.target_y    = parsed.has_y ? parsed.y : 0;
+                cmd.speed       = parsed.has_f ? parsed.f : 100;
+            } 
+            else if (parsed.type == CMD_STOP) 
+            {
+                cmd.is_urgent = 1;
+            }
+        }
+
+        // Responce on CMD receive
+        if (grbl_queue_push(&cmd_queue, &cmd)) 
+        {
+            const char *response = "ok\n";
+            const int sent = sendto(server_fd, response, strlen(response), 0,(struct sockaddr *)&client_addr, client_addr_len);
+            if (sent < 0) 
+            {
+                ESP_LOGE(TAG, "Error sending response: errno %d", errno);
+            } 
+            else
+            {
+                const char *cmd_type = grbl_cmd_type_to_string(parsed.type);
+                ESP_LOGI(TAG, "CMD %s received.Send ok", cmd_type);
+            }
+        }
+        else
+        {
+            const char *response = "error: Buffer full\n";
+            sendto(server_fd, response, strlen(response), 0, (struct sockaddr *)&client_addr, client_addr_len);
+            ESP_LOGI(TAG, "Queue full, sent error");
+        }        
+    }
+
+    close(server_fd); 
+}
+
 void app_main(void)
 {
-    // 1. Инициализация GPIO ISR
+    // Init GPIO ISR for W5500 SPI
     ESP_ERROR_CHECK(gpio_install_isr_service(0));
 
-    // 2. Создание event loop и семафора
     ESP_ERROR_CHECK(esp_event_loop_create_default());
     got_ip_sem = xSemaphoreCreateBinary();
     if (got_ip_sem == NULL) 
@@ -70,7 +164,7 @@ void app_main(void)
         return;
     }
 
-    // 3. Инициализация SPI шины
+    // SPI bus and device init
     spi_bus_config_t buscfg = 
     {
         .mosi_io_num = PIN_SPI_MOSI,
@@ -82,15 +176,14 @@ void app_main(void)
     };
     ESP_ERROR_CHECK(spi_bus_initialize(SPI2_HOST, &buscfg, SPI_DMA_CH_AUTO));
 
-    // 4. Конфигурация SPI устройства
-    spi_device_interface_config_t spi_devcfg = {
+    // Init W5500 mac and phy esp-idf layers
+    spi_device_interface_config_t spi_devcfg = 
+    {
         .mode = 0,
         .clock_speed_hz = 25 * 1000 * 1000,
         .spics_io_num = PIN_SPI_CS,
         .queue_size = 20,
-    };
-
-    // 5. Инициализация W5500
+    };    
     eth_w5500_config_t w5500_config = ETH_W5500_DEFAULT_CONFIG(SPI2_HOST, &spi_devcfg);
     w5500_config.base.int_gpio_num = PIN_W5500_INT;
     
@@ -103,86 +196,35 @@ void app_main(void)
 
     esp_eth_phy_t *phy = esp_eth_phy_new_w5500(&phy_config);
 
-    // 6. Установка драйвера Ethernet
+    // Config ethernet driver and local MAC-adress from ESP32-device
     esp_eth_config_t eth_config = ETH_DEFAULT_CONFIG(mac, phy);
     esp_eth_handle_t eth_handle = NULL;
     ESP_ERROR_CHECK(esp_eth_driver_install(&eth_config, &eth_handle));
 
-    // 7. Установка MAC-адреса
     uint8_t local_mac[6];
     get_local_mac(local_mac);
     ESP_ERROR_CHECK(esp_eth_ioctl(eth_handle, ETH_CMD_S_MAC_ADDR, local_mac));
 
-    // 8. Инициализация сетевого интерфейса
+    // Init esp32 network interface
     ESP_ERROR_CHECK(esp_netif_init());
     esp_netif_config_t cfg = ESP_NETIF_DEFAULT_ETH();
     esp_netif_t *eth_netif = esp_netif_new(&cfg);
     ESP_ERROR_CHECK(esp_netif_attach(eth_netif, esp_eth_new_netif_glue(eth_handle)));
 
-    // 9. Регистрация обработчиков и запуск
     ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_ETH_GOT_IP, &got_ip_event_handler, NULL));
     ESP_ERROR_CHECK(esp_eth_start(eth_handle));
 
-    // Ждем получения IP
     ESP_LOGI(TAG, "Waiting for IP address...");
-    if (xSemaphoreTake(got_ip_sem, portMAX_DELAY) != pdTRUE) {
+    if (xSemaphoreTake(got_ip_sem, portMAX_DELAY) != pdTRUE) 
+    {
         ESP_LOGE(TAG, "Failed to get IP address");
         return;
     }
 
-    // ============= UDP СЕРВЕР =============
-    int server_fd = socket(AF_INET, SOCK_DGRAM, 0); // UDP сокет
-    if (server_fd < 0) {
-        ESP_LOGE(TAG, "Failed to create UDP socket: errno %d", errno);
-        return;
+    xTaskCreate(udp_server_task, "udp_server", 8192, NULL, 5, NULL);    
+
+    while (1) 
+    {
+        vTaskDelay(pdMS_TO_TICKS(1000));
     }
-
-    struct sockaddr_in server_addr;
-    server_addr.sin_family = AF_INET;
-    server_addr.sin_addr.s_addr = INADDR_ANY; // Слушать на всех интерфейсах
-    server_addr.sin_port = htons(8080);       // Порт 8080
-
-    if (bind(server_fd, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
-        ESP_LOGE(TAG, "Failed to bind UDP socket: errno %d", errno);
-        close(server_fd);
-        return;
-    }
-
-    ESP_LOGI(TAG, "UDP Server listening on port 8080");
-
-    // Буфер для приема данных
-    char rx_buffer[UDP_BUFFER_SIZE];
-    struct sockaddr_in client_addr;
-    socklen_t client_addr_len = sizeof(client_addr);
-
-    while (1) {
-        // Ожидаем команду от клиента (ПК)
-        int len = recvfrom(server_fd, rx_buffer, UDP_BUFFER_SIZE - 1, 0, 
-                           (struct sockaddr *)&client_addr, &client_addr_len);
-        
-        if (len < 0) {
-            ESP_LOGE(TAG, "Error receiving UDP data: errno %d", errno);
-            continue;
-        }
-
-        rx_buffer[len] = '\0'; // Завершаем строку
-        ESP_LOGI(TAG, "Received %d bytes from %s:%d: %s", len, 
-                 inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port), rx_buffer);
-
-        // --- ЛОГИКА GRBL ---
-        // Здесь вы можете разбирать команду, например:
-        // if (strstr(rx_buffer, "G1") != NULL) { ... двигаем оси ... }
-        
-        // --- ОТПРАВКА ПОДТВЕРЖДЕНИЯ (ack) ---
-        const char *response = "ok\n";
-        int sent = sendto(server_fd, response, strlen(response), 0, 
-                          (struct sockaddr *)&client_addr, client_addr_len);
-        if (sent < 0) {
-            ESP_LOGE(TAG, "Error sending response: errno %d", errno);
-        } else {
-            ESP_LOGI(TAG, "Sent 'ok' to client");
-        }
-    }
-
-    close(server_fd); // Никогда не достигнется, но для порядка
 }
