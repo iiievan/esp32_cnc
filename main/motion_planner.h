@@ -28,9 +28,19 @@ extern "C" {
 #define min3(a,b,c)             min(min(a,b),c)
 #define max4(a,b,c,d)           max(max(a,b),max(c,d))
 #define min4(a,b,c,d)           min(min(a,b),min(c,d))
-#define fp_ZERO(x)              (fabs(x) < 0.000001)
-#define fp_EQ(a,b)              (fabs((a)-(b)) < 0.000001)
+#define EPSILON		            ((float)0.00001)		// allowable rounding error for floats
+#define fp_ZERO(x)              (fabs(x) < EPSILON)
+#define fp_EQ(a,b)              (fabs((a)-(b)) < EPSILON)
+#define	copy_vector(d,s)        (memcpy(d,s,sizeof(d)))
 
+typedef enum 
+{
+    STAT_OK = 0,
+    STAT_EAGAIN = 1,
+    STAT_NOOP = 2,
+    STAT_MINIMUM_TIME_MOVE = 3,
+    STAT_INTERNAL_ERROR = 4
+} stat_t;
 
 typedef enum 
 {
@@ -50,6 +60,7 @@ typedef enum
     SECTION_BODY,
     SECTION_TAIL
 } moveSection_t;
+#define SECTIONS (3)
 
 typedef enum 
 {
@@ -77,7 +88,10 @@ typedef struct
 // Планировщик буфер (у нас будет только один)
 typedef struct mpBuf 
 {
+    blockState_t block_state;
+
     float unit[AXES];
+     bool axis_flags[AXES];
     float length;
     float head_length;
     float body_length;
@@ -153,9 +167,10 @@ typedef struct
     sectionState_t section_state;
     
     float unit[AXES];
+    bool  axis_flags[AXES];
     float target[AXES];
     float position[AXES];
-    float waypoint[3][AXES];   // head, body, tail endpoints
+    float waypoint[SECTIONS][AXES];   // head, body, tail endpoints
     
     float target_steps[MOTORS];
     float position_steps[MOTORS];
@@ -231,7 +246,7 @@ bool mp_aline(float target_x, float target_y, float feed_rate);
 // --------------------------------------------------------------------------
 // mp_exec_aline() - генерация шагов в таймере
 // --------------------------------------------------------------------------
-void mp_exec_aline(void);
+stat_t mp_exec_aline(mpBuf_t *bf);
 
 void start_motion_timer(void);
 void stop_motion_timer(void);
