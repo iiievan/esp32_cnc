@@ -61,11 +61,23 @@ bool grbl_queue_pop(grbl_queue_t *queue, grbl_command_t *cmd)
     return true;
 }
 
-bool grbl_queue_is_empty(const grbl_queue_t *queue) { return queue->count == 0; }
-
-bool grbl_queue_is_full(const grbl_queue_t *queue) { return queue->count >= QUEUE_SIZE; }
-
-uint8_t grbl_queue_count(const grbl_queue_t *queue) { return queue->count; }
+bool grbl_queue_peek(grbl_queue_t *queue, grbl_command_t *cmd) 
+{
+    if (queue->mutex == NULL) 
+        return false;
+    
+    xSemaphoreTake(queue->mutex, portMAX_DELAY);
+    
+    if (queue->count == 0) 
+    {
+        xSemaphoreGive(queue->mutex);
+        return false;
+    }
+    
+    memcpy(cmd, &queue->buffer[queue->tail], sizeof(grbl_command_t));
+    xSemaphoreGive(queue->mutex);
+    return true;
+}
 
 void grbl_queue_clear(grbl_queue_t *queue) 
 {

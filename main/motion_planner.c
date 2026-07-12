@@ -1,0 +1,319 @@
+#include "motion_planner.h"
+#include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "driver/gpio.h"
+#include "esp_timer.h"
+
+static const char *TAG = "MOTION_CTRL";
+
+// Параметры оси (пример для X и Y)
+axis_param_t axis_params[AXES] = 
+{
+    AXIS_PARAM_DEFAULT(), // X
+    AXIS_PARAM_DEFAULT()  // Y
+};
+
+// Глобальные переменные
+mpMoveMaster_t      mm = MPMOVE_MASTER_INIT();
+mpMoveRuntime_t     mr = MPMOVE_RUNTIME_INIT();
+mpBuf_t             bf = MPBUF_INIT();   
+
+// --------------------------------------------------------------------------
+// Инициализация
+// --------------------------------------------------------------------------
+void mp_init(void) 
+{
+    memset(&mm, 0, sizeof(mm));
+    memset(&mr, 0, sizeof(mr));
+    memset(&bf, 0, sizeof(bf));
+
+    // reset start position to zero
+    mm.position[0] = 0.0; // X
+    mm.position[1] = 0.0; // Y
+    
+    // Инициализация параметров осей
+    for (int i = 0; i < AXES; i++) 
+    {
+        axis_params[i].recip_jerk = 1.0 / axis_params[i].jerk_max;
+    }
+    
+    ESP_LOGI(TAG, "Motion controller initialized");
+}
+
+float mp_get_target_velocity(const float Vi, const float L, const mpBuf_t *bf) 
+{
+    float J = bf->jerk;
+    float Vf = Vi + (L * J / bf->cbrt_jerk) / 2.0; // упрощённая формула
+    // Более точная формула из TinyG:
+    // Vf = Vi + (L / bf->length) * bf->delta_vmax;
+    return Vf;
+}
+
+float mp_get_target_length(const float Vi, const float Vf, const mpBuf_t *bf) 
+{
+    float J = bf->jerk;
+    float L = (Vf - Vi) * bf->cbrt_jerk * 2.0 / J;
+    return L;
+}
+
+static void _calc_move_times(mpBuf_t *bf, const float axis_length[], const float axis_square[]) 
+{
+    float xyz_time = 0;
+    float max_time = 0;
+    float tmp_time;
+    
+    bf->minimum_time = 1e9;
+    
+    // Время по feedrate (для линейного движения)
+    float length = bf->length;
+    if (length > 0) 
+    {
+        xyz_time = length / bf->feed_rate; // время в минутах
+    }
+    
+    // Время, ограниченное максимальной скоростью осей
+    for (int axis = 0; axis < AXES; axis++) 
+    {
+        if (fabs(axis_length[axis]) > 0) 
+        {
+            tmp_time = fabs(axis_length[axis]) / 100.0; // max velocity = 100 mm/min (настроить)
+            max_time = max(max_time, tmp_time);
+            bf->minimum_time = min(bf->minimum_time, tmp_time);
+        }
+    }
+    
+    // Выбираем максимальное время
+    bf->move_time = max(xyz_time, max_time);
+}
+
+// Вычисление максимальной скорости на стыке (junction velocity)
+static float _get_junction_vmax(const float a_unit[], const float b_unit[]) 
+{
+    float costheta = 0;
+    for (int i = 0; i < AXES; i++) {
+        costheta -= a_unit[i] * b_unit[i];
+    }
+    
+    if (costheta < -0.99) return 10000000; // прямая линия
+    if (costheta > 0.99) return 0;         // разворот
+    
+    float a_delta = 0, b_delta = 0;
+    for (int i = 0; i < AXES; i++) {
+        a_delta += square(a_unit[i] * axis_params[i].junction_dev);
+        b_delta += square(b_unit[i] * axis_params[i].junction_dev);
+    }
+    
+    float delta = (sqrt(a_delta) + sqrt(b_delta)) / 2;
+    float sintheta_over2 = sqrt((1 - costheta) / 2);
+    float radius = delta * sintheta_over2 / (1 - sintheta_over2);
+    float velocity = sqrt(radius * 100.0); // junction_acceleration = 100 mm/s²
+    return velocity;
+}
+
+
+bool mp_aline(float target_x, float target_y, float feed_rate) 
+{
+    if (mr.block_state == BLOCK_RUNNING) 
+    {
+        ESP_LOGW(TAG, "Planner busy, cannot start new move");
+        return false;
+    }
+
+    // Очищаем буфер
+    memset(&bf, 0, sizeof(mpBuf_t));
+    
+    // Вычисляем длины по осям
+    float axis_length[AXES];
+    float axis_square[AXES];
+    float length_square = 0;
+    
+    axis_length[0] = target_x - mm.position[0]; // X
+    axis_length[1] = target_y - mm.position[1]; // Y
+    
+    for (int i = 0; i < AXES; i++) 
+    {
+        axis_square[i] = square(axis_length[i]);
+        length_square += axis_square[i];
+    }
+    
+    bf.length = sqrt(length_square);
+    if (fp_ZERO(bf.length)) 
+    {
+        ESP_LOGW(TAG, "Zero length move");
+        return false;
+    }
+    
+    // Устанавливаем feed rate
+    bf.feed_rate = feed_rate; // мм/мин
+    
+    // Вычисляем время движения
+    _calc_move_times(&bf, axis_length, axis_square);
+    
+    // Вычисляем единичный вектор и jerk
+    float maxC = 0;
+    float recip_L2 = 1 / length_square;
+    
+    for (int axis = 0; axis < AXES; axis++) 
+    {
+        if (fabs(axis_length[axis]) > 0) 
+        {
+            bf.unit[axis] = axis_length[axis] / bf.length;
+            float C = axis_square[axis] * recip_L2 * axis_params[axis].recip_jerk;
+
+            if (C > maxC) 
+            {
+                maxC = C;
+                bf.jerk_axis = axis;
+            }
+        }
+    }
+    
+    bf.jerk = axis_params[bf.jerk_axis].jerk_max * JERK_MULTIPLIER / fabs(bf.unit[bf.jerk_axis]);
+    bf.recip_jerk = 1 / bf.jerk;
+    bf.cbrt_jerk = cbrt(bf.jerk);
+    
+    // Устанавливаем скорости
+    bf.cruise_vmax = bf.length / bf.move_time; 
+    
+    // Junction velocity (пока без учёта предыдущего движения)
+    float junction_velocity = _get_junction_vmax(bf.unit, bf.unit); // упрощённо
+    
+    bf.entry_vmax = min3(bf.cruise_vmax, junction_velocity, 1000.0f);
+    bf.delta_vmax = mp_get_target_velocity(0, bf.length, &bf);
+    bf.exit_vmax = min3(bf.cruise_vmax, (bf.entry_vmax + bf.delta_vmax), 1000.0f);
+    bf.braking_velocity = bf.delta_vmax;
+    
+    // Инициализируем runtime
+    mr.block_state = BLOCK_RUNNING;
+    mr.section = SECTION_HEAD;
+    mr.section_state = SECTION_NEW;
+    
+    for (int i = 0; i < AXES; i++) 
+    {
+        mr.unit[i] = bf.unit[i];
+        mr.target[i] = mm.position[i] + axis_length[i];
+        mr.position[i] = mm.position[i];
+    }
+    
+    mr.head_length = bf.head_length;
+    mr.body_length = bf.body_length;
+    mr.tail_length = bf.tail_length;
+    
+    mr.entry_velocity = bf.entry_velocity;
+    mr.cruise_velocity = bf.cruise_velocity;
+    mr.exit_velocity = bf.exit_velocity;
+    
+    // Обновляем позицию планировщика
+    for (int i = 0; i < AXES; i++) 
+    {
+        mm.position[i] = mr.target[i];
+    }
+    
+    ESP_LOGI(TAG, "Move planned: target=(%.2f, %.2f), length=%.2f, time=%.3f min, jerk=%.2f", 
+             target_x, target_y, bf.length, bf.move_time, bf.jerk);
+    
+    // Запускаем генерацию шагов (в таймере)
+    // Здесь вызываем функцию, которая инициализирует таймер
+    start_motion_timer();
+    
+    return true;
+}
+
+// --------------------------------------------------------------------------
+// mp_exec_aline() - генерация шагов в таймере
+// --------------------------------------------------------------------------
+void mp_exec_aline(void) 
+{
+    if (mr.block_state != BLOCK_RUNNING) 
+    {
+        return;
+    }
+    
+    // Здесь будет логика из оригинального mp_exec_aline
+    // Пока упрощённо: вычисляем позицию и генерируем шаги
+    
+    // Примерная логика (упрощённо):
+    static float progress = 0;
+    progress += 0.01; // 1% за вызов
+    
+    if (progress >= 1.0) 
+    {
+        mr.block_state = BLOCK_IDLE;
+        progress = 0;
+        ESP_LOGI(TAG, "Move completed");
+        return;
+    }
+    
+    // Вычисляем текущую позицию (линейная интерполяция для теста)
+    float t = progress;
+    float pos_x = mr.position[0] + (mr.target[0] - mr.position[0]) * t;
+    float pos_y = mr.position[1] + (mr.target[1] - mr.position[1]) * t;
+    
+    // Генерируем шаги (пока просто логируем)
+    static int step_count = 0;
+    if (step_count % 10 == 0) 
+    {
+        ESP_LOGI(TAG, "Step: pos=(%.3f, %.3f)", pos_x, pos_y);
+    }
+    step_count++;
+}
+
+// --------------------------------------------------------------------------
+// Таймер для генерации шагов (используем esp_timer)
+// --------------------------------------------------------------------------
+
+esp_timer_handle_t motion_timer = NULL;
+
+static void motion_timer_callback(void *arg) 
+{
+    mp_exec_aline();
+}
+
+void start_motion_timer(void) 
+{
+    if (motion_timer == NULL) 
+    {
+        esp_timer_create_args_t timer_args = 
+        {
+            .callback = &motion_timer_callback,
+            .arg = NULL,
+            .name = "motion_timer"
+        };
+        ESP_ERROR_CHECK(esp_timer_create(&timer_args, &motion_timer));
+        // Запускаем с периодом 5 мс (200 Гц) - для теста
+        ESP_ERROR_CHECK(esp_timer_start_periodic(motion_timer, 5000));
+    }
+}
+
+void stop_motion_timer(void) 
+{
+    if (motion_timer) 
+    {
+        esp_timer_stop(motion_timer);
+        esp_timer_delete(motion_timer);
+        motion_timer = NULL;
+    }
+}
+
+// --------------------------------------------------------------------------
+// Тестовая функция для рисования круга.
+// --------------------------------------------------------------------------
+void mp_test_circle(void) 
+{
+    // Рисуем круг из 36 точек 
+    float radius = 10.0;
+    int segments = 36;
+    
+    for (int i = 0; i <= segments; i++) 
+    {
+        float angle = 2 * M_PI * i / segments;
+        float x = radius * cos(angle);
+        float y = radius * sin(angle);
+        mp_aline(x, y, 100.0); // feed_rate = 100 мм/мин
+        vTaskDelay(pdMS_TO_TICKS(100)); // задержка для визуализации
+    }
+    
+    // Возврат в центр
+    mp_aline(0, 0, 100.0);
+}

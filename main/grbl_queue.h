@@ -42,11 +42,13 @@ bool grbl_queue_push(grbl_queue_t *queue, const grbl_command_t *cmd);
 
 bool grbl_queue_pop(grbl_queue_t *queue, grbl_command_t *cmd);
 
-bool grbl_queue_is_empty(const grbl_queue_t *queue);
+bool grbl_queue_peek(grbl_queue_t *queue, grbl_command_t *cmd);
 
-bool grbl_queue_is_full(const grbl_queue_t *queue);
+static inline bool grbl_queue_is_empty(const grbl_queue_t *queue) { return queue->count == 0; }
 
-uint8_t grbl_queue_count(const grbl_queue_t *queue);
+static inline bool grbl_queue_is_full(const grbl_queue_t *queue) { return queue->count >= QUEUE_SIZE; }
+
+static inline uint8_t grbl_queue_count(const grbl_queue_t *queue) { return queue->count; }
 
 void grbl_queue_clear(grbl_queue_t *queue);
 
