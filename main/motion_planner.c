@@ -599,6 +599,39 @@ static stat_t _exec_aline_tail(void)
 // --------------------------------------------------------------------------
 // ГЛАВНАЯ ФУНКЦИЯ mp_exec_aline()
 // --------------------------------------------------------------------------
+
+static const char* block_state_to_str(blockState_t state) 
+{
+    switch(state) {
+        case BLOCK_IDLE: return "IDLE";
+        case BLOCK_INITIALIZING: return "INITIALIZING";
+        case BLOCK_RUNNING: return "RUNNING";
+        default: return "UNKNOWN";
+    }
+}
+
+static const char* section_to_str(moveSection_t section) 
+{
+    switch(section) {
+        case SECTION_NA: return "N/A";
+        case SECTION_HEAD: return "HEAD";
+        case SECTION_BODY: return "BODY";
+        case SECTION_TAIL: return "TAIL";
+        default: return "UNKNOWN";
+    }
+}
+
+static const char* section_state_to_str(sectionState_t state) 
+{
+    switch(state) {
+        case SECTION_OFF: return "OFF";
+        case SECTION_NEW: return "NEW";
+        case SECTION_1st_HALF: return "1st_HALF";
+        case SECTION_2nd_HALF: return "2nd_HALF";
+        default: return "UNKNOWN";
+    }
+}
+
 stat_t mp_exec_aline(mpBuf_t *bf) 
 {
 #ifdef DBG_LOG
@@ -675,13 +708,42 @@ stat_t mp_exec_aline(mpBuf_t *bf)
         bf->block_state = BLOCK_IDLE;
 
         // Обновляем позицию планировщика
-        for (int i = 0; i < AXES; i++) {
+        for (int i = 0; i < AXES; i++) 
+        {
             mm.position[i] = mr.position[i];
         }
 
         stop_motion_timer();
 
         ESP_LOGI(TAG, "Move completed at (%.2f, %.2f)", mr.position[0], mr.position[1]);
+    }
+
+    static blockState_t old_block_state = BLOCK_IDLE;
+    static moveSection_t old_section = SECTION_NA;
+    static sectionState_t old_section_state = SECTION_OFF;
+
+    if (mr.block_state != old_block_state) 
+    {
+        ESP_LOGI(TAG, "Block state: %s -> %s", 
+                 block_state_to_str(old_block_state), 
+                 block_state_to_str(mr.block_state));
+        old_block_state = mr.block_state;
+    }
+
+    if (mr.section != old_section) 
+    {
+        ESP_LOGI(TAG, "Section: %s -> %s", 
+                 section_to_str(old_section), 
+                 section_to_str(mr.section));
+        old_section = mr.section;
+    }
+
+    if (mr.section_state != old_section_state) 
+    {
+        ESP_LOGI(TAG, "Section state: %s -> %s", 
+                 section_state_to_str(old_section_state), 
+                 section_state_to_str(mr.section_state));
+        old_section_state = mr.section_state;
     }
 
 #ifdef DBG_LOG

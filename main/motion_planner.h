@@ -57,6 +57,7 @@ typedef enum
 
 typedef enum 
 {
+    SECTION_NA = -1,
     SECTION_HEAD = 0,
     SECTION_BODY,
     SECTION_TAIL
