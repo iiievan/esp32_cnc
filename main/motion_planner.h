@@ -3,7 +3,8 @@
 
 #include <math.h>
 #include <string.h>
-#include "stdint.h"
+#include <stdint.h>
+#include <stdbool.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -16,7 +17,7 @@ extern "C" {
 #define MIN_SEGMENT_TIME        (MIN_SEGMENT_USEC / MICROSECONDS_PER_MINUTE)
 #define MIN_BLOCK_TIME          (MIN_SEGMENT_TIME)
 
-#define JERK_MULTIPLIER         (1000000.0f)
+#define JERK_MULTIPLIER         (1.0f)
 #define JERK_MATCH_PRECISION    (1000.0f)
 #define NOM_SEGMENT_USEC        (5000)
 #define NOM_SEGMENT_TIME        (NOM_SEGMENT_USEC / MICROSECONDS_PER_MINUTE)
@@ -78,10 +79,9 @@ typedef struct
     float junction_dev;
 } axis_param_t;
 
-
 #define AXIS_PARAM_DEFAULT() { \
-    .jerk_max = 20.0f, \
-    .recip_jerk = 0.05f, \
+    .jerk_max = 10.0f, \
+    .recip_jerk = 1.0f, \
     .junction_dev = 0.01f \
 }
 
@@ -121,6 +121,7 @@ typedef struct mpBuf
 
 #define MPBUF_INIT() { \
     .unit = {0.0f, 0.0f}, \
+    .axis_flags = {false, false}, \
     .length = 0.0f, \
     .head_length = 0.0f, \
     .body_length = 0.0f, \
@@ -202,6 +203,7 @@ typedef struct
     .section = SECTION_HEAD, \
     .section_state = SECTION_OFF, \
     .unit = {0.0f, 0.0f}, \
+    .axis_flags = {false, false}, \
     .target = {0.0f, 0.0f}, \
     .position = {0.0f, 0.0f}, \
     .waypoint = {{0.0f, 0.0f}, {0.0f, 0.0f}, {0.0f, 0.0f}}, \

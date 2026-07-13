@@ -19,4 +19,4 @@ def send_one_command(cmd):
     sock.close()
 
 # Отправляем одну команду
-send_one_command("G1 X10 Y10 F1000")
+send_one_command("G1 X10 Y10 F100")
