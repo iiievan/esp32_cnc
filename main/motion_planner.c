@@ -138,11 +138,9 @@ static float _get_junction_vmax(const float a_unit[], const float b_unit[])
 // --------------------------------------------------------------------------
 bool mp_aline(float target_x, float target_y, float feed_rate) 
 {
-#ifdef DBG_LOG
     ESP_LOGI(TAG, "=== mp_aline() START: target=(%.2f, %.2f), feed=%.2f ===", 
              target_x, target_y, feed_rate);
     ESP_LOGI(TAG, "  mm.position = (%.2f, %.2f)", mm.position[0], mm.position[1]);
-#endif
 
     if (mr.block_state == BLOCK_RUNNING) 
     {
@@ -169,9 +167,8 @@ bool mp_aline(float target_x, float target_y, float feed_rate)
     }
     
     bf.length = sqrtf(length_square);
-#ifdef DBG_LOG
+
     ESP_LOGI(TAG, "  bf.length = %.4f", bf.length);
-#endif
     
     if (fp_ZERO(bf.length)) 
     {
@@ -184,9 +181,8 @@ bool mp_aline(float target_x, float target_y, float feed_rate)
     
     // Вычисляем время движения
     _calc_move_times(&bf, axis_length, axis_square);
-#ifdef DBG_LOG
+
     ESP_LOGI(TAG, "  bf.move_time = %.6f min", bf.move_time);
-#endif
     
     // Вычисляем единичный вектор и jerk
     float maxC = 0;
@@ -209,9 +205,8 @@ bool mp_aline(float target_x, float target_y, float feed_rate)
     bf.jerk = axis_params[bf.jerk_axis].jerk_max * JERK_MULTIPLIER / fabs(bf.unit[bf.jerk_axis]);
     bf.recip_jerk = 1.0f / bf.jerk;
     bf.cbrt_jerk = cbrtf(bf.jerk);
-#ifdef DBG_LOG
+
     ESP_LOGI(TAG, "  bf.jerk = %.2f, axis=%d", bf.jerk, bf.jerk_axis);
-#endif
     
     // Устанавливаем скорости
     bf.cruise_vmax = bf.length / bf.move_time; 
@@ -233,51 +228,43 @@ bool mp_aline(float target_x, float target_y, float feed_rate)
     bf.cruise_velocity = bf.cruise_vmax;
     bf.exit_velocity = 0.0f;
 
-#ifdef DBG_LOG
+
     ESP_LOGI(TAG, "  speeds: entry=%.2f, cruise=%.2f, exit=%.2f", 
              bf.entry_velocity, bf.cruise_velocity, bf.exit_velocity);
-#endif
+
     float total_length = bf.length;
     float v_entry = bf.entry_velocity;
     float v_cruise = bf.cruise_velocity;
     float v_exit = bf.exit_velocity;
 
-    // Длина разгона (HEAD)
+
     bf.head_length = mp_get_target_length(v_entry, v_cruise, &bf);
-    // Длина торможения (TAIL)
     bf.tail_length = mp_get_target_length(v_cruise, v_exit, &bf);
-    // Длина круиза (BODY) - остаток
+    if (bf.tail_length < 0) bf.tail_length = -bf.tail_length;
     bf.body_length = total_length - bf.head_length - bf.tail_length;
 
-#ifdef DBG_LOG
     ESP_LOGI(TAG, "  lengths: head=%.4f, body=%.4f, tail=%.4f", 
              bf.head_length, bf.body_length, bf.tail_length);
-#endif
 
+    // Если сумма head + tail больше общей длины — пропорционально уменьшаем
     if (bf.body_length < 0) 
     {
-        // Упрощенно: убираем круиз, разгон сразу переходит в торможение
-        bf.body_length = 0.0f;
-        // Пересчитываем head и tail пропорционально
         float total_accel = bf.head_length + bf.tail_length;
         if (total_accel > 0) 
         {
             bf.head_length = (bf.head_length / total_accel) * total_length;
-            bf.tail_length = total_length - bf.head_length;
+            bf.tail_length = (bf.tail_length / total_accel) * total_length;
+            bf.body_length = 0.0f;
         }
-#ifdef DBG_LOG
         ESP_LOGI(TAG, "  corrected: head=%.4f, body=%.4f, tail=%.4f", 
                  bf.head_length, bf.body_length, bf.tail_length);
-#endif
     }
 
     float total_move_time = bf.move_time * 60.0f;
     mr.segments = ceilf(total_move_time / (NOM_SEGMENT_USEC / 1000000.0f));
-    if (mr.segments < 10) mr.segments = 10;
-    
-#ifdef DBG_LOG
+    if (mr.segments < 10) mr.segments = 10;    
+
     ESP_LOGI(TAG, "  mr.segments = %.0f", mr.segments);
-#endif
 
     mr.block_state = BLOCK_RUNNING;
     mr.section = SECTION_HEAD;
@@ -372,64 +359,32 @@ static void _init_forward_diffs(float Vi, float Vt)
 
 static stat_t _exec_aline_segment(void) 
 {
-#ifdef DBG_LOG
-    ESP_LOGI(TAG, ">>> _exec_aline_segment() ENTER: seg_count=%d, segments=%.0f, vel=%.6f, time=%.6f", 
-             mr.segment_count, mr.segments, mr.segment_velocity, mr.segment_time);
-#endif
+    // Уменьшаем счётчик сегментов
+    mr.segment_count--;
     
-    if (mr.segment_count == 1) 
-    {
-        mr.position[0] = mr.target[0];
-        mr.position[1] = mr.target[1];
-        mr.segment_count = 0;
-#ifdef DBG_LOG
-        ESP_LOGI(TAG, "  LAST segment: pos=(%.3f, %.3f)", mr.position[0], mr.position[1]);
-#endif
+    // Если это последний сегмент и мы в конце секции — используем waypoint
+    if (mr.segment_count == 0 && mr.section_state == SECTION_2nd_HALF) {
+        copy_vector(mr.position, mr.waypoint[mr.section]);
         return STAT_OK;
     }
     
-    // Проверка на границу секции
-    if (mr.segment_count == 1 && mr.section_state == SECTION_2nd_HALF) {
-        // На границе секции — используем waypoint для коррекции
-        copy_vector(mr.position, mr.waypoint[mr.section]);
-        mr.segment_count = 0;
-#ifdef DBG_LOG
-        ESP_LOGI(TAG, "  WAYPOINT correction: pos=(%.3f, %.3f)", mr.position[0], mr.position[1]);
-#endif
-        return STAT_EAGAIN;
-    }
-    
-    // Вычисляем длину сегмента
-    const float segment_length = mr.segment_velocity * mr.segment_time;
-#ifdef DBG_LOG
-    ESP_LOGI(TAG, "  segment_length = %.6f", segment_length);
-#endif
-    
-    // Вычисляем новую позицию по единичному вектору
-    const float pos_x = mr.position[0] + mr.unit[0] * segment_length;
-    const float pos_y = mr.position[1] + mr.unit[1] * segment_length;
+    // Иначе вычисляем позицию через segment_length
+    float segment_length = mr.segment_velocity * mr.segment_time;
+    float pos_x = mr.position[0] + mr.unit[0] * segment_length;
+    float pos_y = mr.position[1] + mr.unit[1] * segment_length;
     
     mr.position[0] = pos_x;
     mr.position[1] = pos_y;
-
-    mr.segment_count--;
     
     // Логирование (каждые 10%)
     int total_segments = (int)mr.segments;
     int progress = (int)(((total_segments - mr.segment_count) / (float)total_segments) * 100.0f);
-      
-    // Логируем каждые 10%
     static int last_log = -1;
-    if (progress != last_log && (progress % 10 == 0 || progress == 99)) 
-    {
+    if (progress != last_log && (progress % 10 == 0 || progress == 99)) {
         last_log = progress;
         ESP_LOGI(TAG, "Progress: %d%% pos=(%.3f, %.3f) vel=%.2f", 
                  progress, pos_x, pos_y, mr.segment_velocity * 60.0f);
     }
-
-#ifdef DBG_LOG   
-    ESP_LOGI(TAG, "<<< _exec_aline_segment() EXIT: pos=(%.3f, %.3f)", pos_x, pos_y);
-#endif
     
     return STAT_EAGAIN;
 }
@@ -470,6 +425,7 @@ static stat_t _exec_aline_head(void)
         {
             mr.section = SECTION_BODY;
             mr.section_state = SECTION_NEW;
+            return STAT_EAGAIN; 
         } 
         else 
         {
