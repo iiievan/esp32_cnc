@@ -1,4 +1,3 @@
-// main/grbl_queue.h
 #ifndef GRBL_QUEUE_H
 #define GRBL_QUEUE_H
 

@@ -1,7 +1,6 @@
 #ifndef _APP_TASKS_H
 #define _APP_TASKS_H
 
-
 #ifdef __cplusplus
 extern "C" {
 #endif

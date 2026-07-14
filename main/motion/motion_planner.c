@@ -1,4 +1,4 @@
-#include "motion_planner.h"
+#include "motion.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -236,7 +236,6 @@ bool mp_aline(float target_x, float target_y, float feed_rate)
     float v_entry = bf.entry_velocity;
     float v_cruise = bf.cruise_velocity;
     float v_exit = bf.exit_velocity;
-
 
     bf.head_length = mp_get_target_length(v_entry, v_cruise, &bf);
     bf.tail_length = mp_get_target_length(v_cruise, v_exit, &bf);

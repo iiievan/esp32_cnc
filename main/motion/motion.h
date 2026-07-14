@@ -50,10 +50,6 @@ typedef enum
     BLOCK_RUNNING
 } blockState_t;
 
-typedef enum 
-{
-    BLOCK_TYPE_ALINE = 0
-} blockType_t;
 
 typedef enum 
 {

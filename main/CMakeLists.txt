@@ -3,12 +3,14 @@ idf_component_register(
         "udp_server.c"
         "app_tasks.c"
         "grbl_queue.c"
-        "grbl_parser.c"
-        "motion_planner.c"
+        "grbl_parser.c"       
     PRIV_REQUIRES 
         esp_eth 
         esp_netif
         driver
         nvs_flash
+        motion
     INCLUDE_DIRS "."
 )
+
+

@@ -1,14 +1,9 @@
-/*
- * UDP GRBL-like Server for ESP32-S3-ETH (W5500)
- */
-
-
 #include <stdio.h>
 #include <string.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "app_tasks.h"
-#include "motion_planner.h"
+#include "motion/motion.h"
 #include "esp_netif.h"
 #include "esp_eth.h"
 #include "esp_mac.h"
