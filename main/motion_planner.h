@@ -86,17 +86,48 @@ typedef struct
     .junction_dev = 0.01f \
 }
 
+// Gcode model state - used by model, planning and runtime
+typedef struct GCodeState 
+{				
+	uint32_t linenum;					// Gcode block line number
+	uint8_t motion_mode;				// Group1: G0, G1, G2, G3, G38.2, G80, G81,
+										// G82, G83 G84, G85, G86, G87, G88, G89
+	float target[AXES]; 				// XYZABC where the move should go
+	float work_offset[AXES];			// offset from the work coordinate system (for reporting only)
+
+	float move_time;					// optimal time for move given axis constraints
+	float minimum_time;					// minimum time possible for move given axis constraints
+	float feed_rate; 					// F - normalized to millimeters/minute or in inverse time mode
+
+	float spindle_speed;				// in RPM
+	float parameter;					// P - parameter used for dwell time in seconds, G10 coord select...
+
+	uint8_t feed_rate_mode;				// See cmFeedRateMode for settings
+	uint8_t select_plane;				// G17,G18,G19 - values to set plane to
+	uint8_t units_mode;					// G20,G21 - 0=inches (G20), 1 = mm (G21)
+	uint8_t coord_system;				// G54-G59 - select coordinate system 1-9
+	uint8_t absolute_override;			// G53 TRUE = move using machine coordinates - this block only (G53)
+	uint8_t path_control;				// G61... EXACT_PATH, EXACT_STOP, CONTINUOUS
+	uint8_t distance_mode;				// G91   0=use absolute coords(G90), 1=incremental movement
+	uint8_t arc_distance_mode;			// G91.1   0=use absolute coords(G90), 1=incremental movement
+	uint8_t tool;						// M6 tool change - moves "tool_select" to "tool"
+	uint8_t tool_select;				// T value - T sets this value
+	uint8_t mist_coolant;				// TRUE = mist on (M7), FALSE = off (M9)
+	uint8_t flood_coolant;				// TRUE = flood on (M8), FALSE = off (M9)
+	uint8_t spindle_mode;				// 0=OFF (M5), 1=CW (M3), 2=CCW (M4)
+} GCodeState_t;
+
 // Планировщик буфер (у нас будет только один)
 typedef struct mpBuf 
 {
     blockState_t block_state;
 
     float unit[AXES];
-     bool axis_flags[AXES];
     float length;
     float head_length;
     float body_length;
     float tail_length;
+    uint8_t replannable;
     
     float entry_velocity;
     float cruise_velocity;
@@ -107,26 +138,22 @@ typedef struct mpBuf
     float exit_vmax;
     float delta_vmax;
     float braking_velocity;
-    
+  
+    uint8_t jerk_axis; 
     float jerk;
     float recip_jerk;
     float cbrt_jerk;
-    uint8_t jerk_axis;
-    
-    float target[AXES];        // конечная точка
-    float feed_rate;           // скорость подачи (мм/мин)
-    float move_time;           // время движения в минутах
-    float minimum_time;        // минимальное время
-    uint8_t replannable;
+
+    GCodeState_t gm;				// Gode model state - passed from model, used by planner and runtime
 } mpBuf_t;
 
 #define MPBUF_INIT() { \
     .unit = {0.0f, 0.0f}, \
-    .axis_flags = {false, false}, \
     .length = 0.0f, \
     .head_length = 0.0f, \
     .body_length = 0.0f, \
     .tail_length = 0.0f, \
+    .replannable = 0, \
     .entry_velocity = 0.0f, \
     .cruise_velocity = 0.0f, \
     .exit_velocity = 0.0f, \
@@ -135,15 +162,10 @@ typedef struct mpBuf
     .exit_vmax = 0.0f, \
     .delta_vmax = 0.0f, \
     .braking_velocity = 0.0f, \
+    .jerk_axis = 0, \
     .jerk = 0.0f, \
     .recip_jerk = 0.0f, \
-    .cbrt_jerk = 0.0f, \
-    .jerk_axis = 0, \
-    .target = {0.0f, 0.0f}, \
-    .feed_rate = 100.0f, \
-    .move_time = 0.0f, \
-    .minimum_time = 0.0f, \
-    .replannable = 0 \
+    .cbrt_jerk = 0.0f \
 }
 
 // Глобальные структуры (mm - master, mr - runtime)
@@ -197,6 +219,8 @@ typedef struct
     float forward_diff_3;
     float forward_diff_4;
     float forward_diff_5;
+
+    GCodeState_t gm;				// gcode model state currently executing
 } mpMoveRuntime_t;
 
 #define MPMOVE_RUNTIME_INIT() { \

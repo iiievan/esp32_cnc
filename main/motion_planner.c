@@ -66,13 +66,13 @@ static void _calc_move_times(mpBuf_t *bf, const float axis_length[], const float
     float max_time = 0;
     float tmp_time;
     
-    bf->minimum_time = 8675309.0f; // большое число
+    bf->gm.minimum_time = 8675309.0f; // большое число
     
     // Время по feedrate (для линейного движения)
     float length = bf->length;
     if (length > 0) 
     {
-        xyz_time = length / bf->feed_rate; // время в минутах
+        xyz_time = length / bf->gm.feed_rate; // время в минутах
     }
     
     for (int axis = 0; axis < AXES; axis++) 
@@ -80,16 +80,16 @@ static void _calc_move_times(mpBuf_t *bf, const float axis_length[], const float
         if (fabs(axis_length[axis]) > 0) 
         {
             // Используем feed_rate как максимальную скорость для расчета времени
-            tmp_time = fabs(axis_length[axis]) / bf->feed_rate;
+            tmp_time = fabs(axis_length[axis]) / bf->gm.feed_rate;
             max_time = max(max_time, tmp_time);
-            bf->minimum_time = min(bf->minimum_time, tmp_time);
+            bf->gm.minimum_time = min(bf->gm.minimum_time, tmp_time);
         }
     }
     
-    bf->move_time = max(xyz_time, max_time);
+    bf->gm.move_time = max(xyz_time, max_time);
     
     // Проверка на короткие движения (как в TinyG)
-    if (bf->move_time < MIN_BLOCK_TIME) 
+    if (bf->gm.move_time < MIN_BLOCK_TIME) 
     {
         float delta_velocity = powf(length, 0.66666666f) * mm.cbrt_jerk;
         float entry_velocity = 0.0f;
@@ -98,11 +98,11 @@ static void _calc_move_times(mpBuf_t *bf, const float axis_length[], const float
         if (move_time < MIN_BLOCK_TIME) 
         {
             // Слишком короткое движение — пропускаем
-            bf->move_time = MIN_BLOCK_TIME;
+            bf->gm.move_time = MIN_BLOCK_TIME;
         } 
         else 
         {
-            bf->move_time = move_time;
+            bf->gm.move_time = move_time;
         }
     }
 }
@@ -177,12 +177,12 @@ bool mp_aline(float target_x, float target_y, float feed_rate)
     }
     
     // Устанавливаем feed rate
-    bf.feed_rate = feed_rate; // мм/мин
+    bf.gm.feed_rate = feed_rate; // мм/мин
     
     // Вычисляем время движения
     _calc_move_times(&bf, axis_length, axis_square);
 
-    ESP_LOGI(TAG, "  bf.move_time = %.6f min", bf.move_time);
+    ESP_LOGI(TAG, "  bf.gm.move_time = %.6f min", bf.gm.move_time);
     
     // Вычисляем единичный вектор и jerk
     float maxC = 0;
@@ -209,7 +209,7 @@ bool mp_aline(float target_x, float target_y, float feed_rate)
     ESP_LOGI(TAG, "  bf.jerk = %.2f, axis=%d", bf.jerk, bf.jerk_axis);
     
     // Устанавливаем скорости
-    bf.cruise_vmax = bf.length / bf.move_time; 
+    bf.cruise_vmax = bf.length / bf.gm.move_time; 
     
     // Junction velocity с учетом предыдущего движения
     float junction_velocity = _get_junction_vmax(prev_unit, bf.unit);
@@ -260,13 +260,13 @@ bool mp_aline(float target_x, float target_y, float feed_rate)
                  bf.head_length, bf.body_length, bf.tail_length);
     }
 
-    float total_move_time = bf.move_time * 60.0f;
+    float total_move_time = bf.gm.move_time * 60.0f;
     mr.segments = ceilf(total_move_time / (NOM_SEGMENT_USEC / 1000000.0f));
     if (mr.segments < 10) mr.segments = 10;    
 
     ESP_LOGI(TAG, "  mr.segments = %.0f", mr.segments);
 
-    mr.block_state = BLOCK_RUNNING;
+    mr.block_state = BLOCK_IDLE;
     mr.section = SECTION_HEAD;
     mr.section_state = SECTION_NEW;
     
@@ -285,17 +285,13 @@ bool mp_aline(float target_x, float target_y, float feed_rate)
     mr.cruise_velocity = bf.cruise_velocity;
     mr.exit_velocity = bf.exit_velocity;
     
-    // Обновляем позицию планировщика
-    for (int i = 0; i < AXES; i++) 
-    {
-        mm.position[i] = mr.target[i];
-    }
+    copy_vector(mm.position, bf.gm.target);
  
 #ifdef DBG_LOG
     ESP_LOGI(TAG, "=== mp_aline() END: success ===");
 #else
     ESP_LOGI(TAG, "Move planned: target=(%.2f, %.2f), length=%.2f, time=%.3f min, jerk=%.2f, segments=%.0f", 
-             target_x, target_y, bf.length, bf.move_time, bf.jerk, mr.segments);
+             target_x, target_y, bf.length, bf.gm.move_time, bf.jerk, mr.segments);
 #endif
    
     // Запускаем генерацию шагов (в таймере)
@@ -363,29 +359,42 @@ static stat_t _exec_aline_segment(void)
     mr.segment_count--;
     
     // Если это последний сегмент и мы в конце секции — используем waypoint
-    if (mr.segment_count == 0 && mr.section_state == SECTION_2nd_HALF) {
-        copy_vector(mr.position, mr.waypoint[mr.section]);
-        return STAT_OK;
+    if (mr.segment_count == 0 && mr.section_state == SECTION_2nd_HALF) 
+    {
+        copy_vector(mr.gm.target, mr.waypoint[mr.section]);
+    } 
+    else 
+    {
+        float segment_length = mr.segment_velocity * mr.segment_time;
+        for (uint8_t i = 0; i < AXES; i++) 
+        {
+			mr.gm.target[i] = mr.position[i] + (mr.unit[i] * segment_length);
+        }
+    }
+
+    static moveSection_t old_section = SECTION_NA;
+    if (mr.section != old_section) 
+    {
+        ESP_LOGI(TAG, "Pos old:%.3f, %.3f", mr.position[0], mr.position[1]);
+        old_section = mr.section;
     }
     
-    // Иначе вычисляем позицию через segment_length
-    float segment_length = mr.segment_velocity * mr.segment_time;
-    float pos_x = mr.position[0] + mr.unit[0] * segment_length;
-    float pos_y = mr.position[1] + mr.unit[1] * segment_length;
-    
-    mr.position[0] = pos_x;
-    mr.position[1] = pos_y;
+    // Обновляем позицию из mr.gm.target
+    copy_vector(mr.position, mr.gm.target);
     
     // Логирование (каждые 10%)
     int total_segments = (int)mr.segments;
     int progress = (int)(((total_segments - mr.segment_count) / (float)total_segments) * 100.0f);
     static int last_log = -1;
-    if (progress != last_log && (progress % 10 == 0 || progress == 99)) {
+
+    if (progress != last_log && (progress % 10 == 0 || progress == 99)) 
+    {
         last_log = progress;
         ESP_LOGI(TAG, "Progress: %d%% pos=(%.3f, %.3f) vel=%.2f", 
-                 progress, pos_x, pos_y, mr.segment_velocity * 60.0f);
+                 progress, mr.position[0], mr.position[1], mr.segment_velocity * 60.0f);
     }
-    
+
+    if (mr.segment_count == 0) return (STAT_OK);    
     return STAT_EAGAIN;
 }
 
@@ -612,6 +621,7 @@ stat_t mp_exec_aline(mpBuf_t *bf)
         mr.block_state = BLOCK_INITIALIZING;
         mr.section = SECTION_HEAD;
         mr.section_state = SECTION_NEW;
+        mm.jerk = bf->jerk;
         
         mr.head_length = bf->head_length;
         mr.body_length = bf->body_length;
@@ -622,8 +632,7 @@ stat_t mp_exec_aline(mpBuf_t *bf)
         mr.exit_velocity = bf->exit_velocity;
 
         copy_vector(mr.unit, bf->unit);
-        copy_vector(mr.target, bf->target);
-        copy_vector(mr.axis_flags, bf->axis_flags);          
+        copy_vector(mr.target, bf->gm.target);          
         
         // Вычисляем waypoints для коррекции позиции
         for (int i = 0; i < AXES; i++) 
@@ -657,17 +666,15 @@ stat_t mp_exec_aline(mpBuf_t *bf)
     }
     
     // Завершение движения
-    if (status == STAT_OK) 
-    {        
+    if (status == STAT_EAGAIN) 
+    {   
+        // continue moving to next section 
+    }
+    else
+    {    
         mr.section_state = SECTION_OFF;
         mr.block_state = BLOCK_IDLE;
         bf->block_state = BLOCK_IDLE;
-
-        // Обновляем позицию планировщика
-        for (int i = 0; i < AXES; i++) 
-        {
-            mm.position[i] = mr.position[i];
-        }
 
         stop_motion_timer();
 
