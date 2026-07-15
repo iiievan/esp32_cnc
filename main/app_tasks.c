@@ -111,17 +111,19 @@ void planner_task(void *arg)
             if (mr.block_state != BLOCK_RUNNING) 
             {
                 grbl_queue_pop(&cmd_queue, &cmd);
+
+                if(is_zero_move_default(cmd.target_x, cmd.target_y)) 
+                { 
+                    continue; 
+                }
                 
-                // Выполняем
                 if (mp_aline(cmd.target_x, cmd.target_y, cmd.speed)) 
                 {
                     ESP_LOGI(TAG, "Planner: move started to (%.2f, %.2f, %.2f)", 
                              cmd.target_x, cmd.target_y, cmd.speed);
-                }
-                else
-                {
+                }  
+                else 
                     ESP_LOGE(TAG, "Planner: move failed");
-                }
             }
             else
             {

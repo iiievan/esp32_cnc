@@ -10,8 +10,7 @@ static const char *TAG = "MOT_EXECUTE";
 static inline void log_promt()
 {
     ESP_LOGI(TAG, "MOVE START");
-    ESP_LOGI(TAG, "pos_x_mm:pos_y_mm:curr_vel:T_ms:dt_ms");
-    ESP_LOGI(TAG, "1000:1000:60:1000:1000");
+    ESP_LOGI(TAG, "pos_x_mm:pos_y_mm:vel_mm_min:T_ms:dt_ms");
 }
 
 static inline void log_out(int T_ms, int dt_ms)
@@ -84,9 +83,7 @@ stat_t mp_exec_aline(mpBuf_t *bf)
     
     if (mr.block_state == BLOCK_IDLE) 
     {
-        ESP_LOGI(TAG, "MOVE START");
-        ESP_LOGI(TAG, "pos_x_mm:pos_y_mm:curr_vel:T_ms:dt_ms");
-        ESP_LOGI(TAG, "1000:1000:60:1000:1000");
+        log_promt();
 
         bf->replannable = false;
         bf->block_state = BLOCK_RUNNING;
@@ -142,6 +139,8 @@ stat_t mp_exec_aline(mpBuf_t *bf)
         mr.section_state = SECTION_OFF;
         mr.block_state = BLOCK_IDLE;
         bf->block_state = BLOCK_IDLE;
+
+        copy_vector(mm.position, mr.position);
 
         stop_motion_timer();
 

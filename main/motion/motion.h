@@ -262,6 +262,22 @@ const char* block_state_to_str(blockState_t state);
 const char* section_to_str(moveSection_t section); 
 const char* section_state_to_str(sectionState_t state);
 
+/**
+ * @brief Проверяет, является ли перемещение нулевым
+ * @param target_x Целевая X координата
+ * @param target_y Целевая Y координата
+ * @param current_x Текущая X координата (опционально, если NULL - использует mm.position)
+ * @param current_y Текущая Y координата (опционально, если NULL - использует mm.position)
+ * @param tolerance Допуск в мм (по умолчанию 0.001)
+ * @return true если перемещение нулевое (в пределах допуска)
+ */
+bool is_zero_move(float target_x, float target_y, const float* current_x, const float* current_y);
+
+static inline bool is_zero_move_default(float target_x, float target_y) 
+{
+    return is_zero_move(target_x, target_y, NULL, NULL);
+}
+
 #ifdef __cplusplus
 }
 #endif

@@ -23,7 +23,7 @@ def send_triangle():
     
     # Параметры треугольника
     size = 50  # размер в мм
-    feedrate = 100  # скорость в мм/мин
+    feedrate = 300  # скорость в мм/мин
     
     # Координаты вершин треугольника (равносторонний)
     # Вершина 1: (0, 0)
@@ -47,7 +47,7 @@ def send_triangle():
     send_command(sock, "G21")  # Единицы в мм
     
     # Движение по треугольнику
-    #send_command(sock, f"G1 X{x1:.1f} Y{y1:.1f} F{feedrate}")  # Начальная точка
+    send_command(sock, f"G1 X{x1:.1f} Y{y1:.1f} F{feedrate}")  # Начальная точка
     send_command(sock, f"G1 X{x2:.1f} Y{y2:.1f} F{feedrate}")  # Первая линия
     send_command(sock, f"G1 X{x3:.1f} Y{y3:.1f} F{feedrate}")  # Вторая линия
     send_command(sock, f"G1 X{x1:.1f} Y{y1:.1f} F{feedrate}")  # Третья линия (замыкаем)

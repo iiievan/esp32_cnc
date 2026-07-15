@@ -24,6 +24,9 @@ mpBuf_t             bf = MPBUF_INIT();
 // Предыдущий unit-вектор для расчета junction_velocity
 static float prev_unit[AXES] = {0.0f, 0.0f};
 
+static void _calc_move_times(mpBuf_t *bf, const float axis_length[], const float axis_square[]);
+static float _get_junction_vmax(const float a_unit[], const float b_unit[]);
+
 void mp_init(void) 
 {
     memset(&mm, 0, sizeof(mm));
@@ -44,77 +47,16 @@ void mp_init(void)
     ESP_LOGI(TAG, "Motion controller initialized");
 }
 
-static void _calc_move_times(mpBuf_t *bf, const float axis_length[], const float axis_square[]) 
+bool is_zero_move(float target_x, float target_y, const float* current_x, const float* current_y) 
 {
-    float xyz_time = 0;
-    float max_time = 0;
-    float tmp_time;
+    float cx = (current_x != NULL) ? *current_x : mm.position[0];
+    float cy = (current_y != NULL) ? *current_y : mm.position[1];
     
-    bf->gm.minimum_time = 8675309.0f; // большое число
+    float dx = target_x - cx;
+    float dy = target_y - cy;
+    float distance = sqrtf(dx*dx + dy*dy);
     
-    // Время по feedrate (для линейного движения)
-    float length = bf->length;
-    if (length > 0) 
-    {
-        xyz_time = length / bf->gm.feed_rate; // время в минутах
-    }
-    
-    for (int axis = 0; axis < AXES; axis++) 
-    {
-        if (fabs(axis_length[axis]) > 0) 
-        {
-            // Используем feed_rate как максимальную скорость для расчета времени
-            tmp_time = fabs(axis_length[axis]) / bf->gm.feed_rate;
-            max_time = max(max_time, tmp_time);
-            bf->gm.minimum_time = min(bf->gm.minimum_time, tmp_time);
-        }
-    }
-    
-    bf->gm.move_time = max(xyz_time, max_time);
-    
-    // Проверка на короткие движения (как в TinyG)
-    if (bf->gm.move_time < MIN_BLOCK_TIME) 
-    {
-        float delta_velocity = powf(length, 0.66666666f) * mm.cbrt_jerk;
-        float entry_velocity = 0.0f;
-        // Для первого движения entry_velocity = 0
-        float move_time = (2.0f * length) / (2.0f * entry_velocity + delta_velocity);
-        if (move_time < MIN_BLOCK_TIME) 
-        {
-            // Слишком короткое движение — пропускаем
-            bf->gm.move_time = MIN_BLOCK_TIME;
-        } 
-        else 
-        {
-            bf->gm.move_time = move_time;
-        }
-    }
-}
-
-// --------------------------------------------------------------------------
-// _get_junction_vmax() - расчет максимальной скорости на стыке
-// --------------------------------------------------------------------------
-static float _get_junction_vmax(const float a_unit[], const float b_unit[]) 
-{
-    float costheta = 0;
-    for (int i = 0; i < AXES; i++) {
-        costheta -= a_unit[i] * b_unit[i];
-    }
-    
-    if (costheta < -0.99f) return 10000000.0f; // прямая линия
-    if (costheta > 0.99f) return 0.0f;         // разворот
-    
-    float a_delta = 0, b_delta = 0;
-    for (int i = 0; i < AXES; i++) {
-        a_delta += square(a_unit[i] * axis_params[i].junction_dev);
-        b_delta += square(b_unit[i] * axis_params[i].junction_dev);
-    }
-    
-    float delta = (sqrtf(a_delta) + sqrtf(b_delta)) / 2.0f;
-    float sintheta_over2 = sqrtf((1.0f - costheta) / 2.0f);
-    float radius = delta * sintheta_over2 / (1.0f - sintheta_over2);
-    float velocity = sqrtf(radius * 100.0f); // junction_acceleration = 100 mm/s²
-    return velocity;
+    return (fabs(distance) < EPSILON);
 }
 
 // --------------------------------------------------------------------------
@@ -130,6 +72,16 @@ bool mp_aline(float target_x, float target_y, float feed_rate)
     {
         ESP_LOGW(TAG, "Planner busy, cannot start new move");
         return false;
+    }
+
+    if (is_zero_move_default(target_x, target_y)) 
+    {
+        ESP_LOGW(TAG, "Zero length move to (%.2f, %.2f) - skipping", target_x, target_y);
+
+        mm.position[0] = target_x;
+        mm.position[1] = target_y;
+
+        return true; // Возвращаем true, так как уже в этой позиции
     }
 
     // Очищаем буфер
@@ -278,6 +230,78 @@ bool mp_aline(float target_x, float target_y, float feed_rate)
     start_motion_timer();
     
     return true;
+}
+
+static void _calc_move_times(mpBuf_t *bf, const float axis_length[], const float axis_square[]) 
+{
+    float xyz_time = 0;
+    float max_time = 0;
+    float tmp_time;
+    
+    bf->gm.minimum_time = 8675309.0f; // <-большое число
+    
+    // Время по feedrate (для линейного движения)
+    float length = bf->length;
+    if (length > 0) 
+    {
+        xyz_time = length / bf->gm.feed_rate; // время в минутах
+    }
+    
+    for (int axis = 0; axis < AXES; axis++) 
+    {
+        if (fabs(axis_length[axis]) > 0) 
+        {
+            // Используем feed_rate как максимальную скорость для расчета времени
+            tmp_time = fabs(axis_length[axis]) / bf->gm.feed_rate;
+            max_time = max(max_time, tmp_time);
+            bf->gm.minimum_time = min(bf->gm.minimum_time, tmp_time);
+        }
+    }
+    
+    bf->gm.move_time = max(xyz_time, max_time);
+    
+    // Проверка на короткие движения
+    if (bf->gm.move_time < MIN_BLOCK_TIME) 
+    {
+        float delta_velocity = powf(length, 0.66666666f) * mm.cbrt_jerk;
+        float entry_velocity = 0.0f;
+        // Для первого движения entry_velocity = 0
+        float move_time = (2.0f * length) / (2.0f * entry_velocity + delta_velocity);
+        if (move_time < MIN_BLOCK_TIME) 
+        {
+            // Слишком короткое движение — пропускаем
+            bf->gm.move_time = MIN_BLOCK_TIME;
+        } 
+        else 
+        {
+            bf->gm.move_time = move_time;
+        }
+    }
+}
+
+static float _get_junction_vmax(const float a_unit[], const float b_unit[]) 
+{
+    float costheta = 0;
+    for (int i = 0; i < AXES; i++) 
+    {
+        costheta -= a_unit[i] * b_unit[i];
+    }
+    
+    if (costheta < -0.99f) return 10000000.0f; // прямая линия
+    if (costheta > 0.99f) return 0.0f;         // разворот
+    
+    float a_delta = 0, b_delta = 0;
+    for (int i = 0; i < AXES; i++) 
+    {
+        a_delta += square(a_unit[i] * axis_params[i].junction_dev);
+        b_delta += square(b_unit[i] * axis_params[i].junction_dev);
+    }
+    
+    float delta = (sqrtf(a_delta) + sqrtf(b_delta)) / 2.0f;
+    float sintheta_over2 = sqrtf((1.0f - costheta) / 2.0f);
+    float radius = delta * sintheta_over2 / (1.0f - sintheta_over2);
+    float velocity = sqrtf(radius * 100.0f); // junction_acceleration = 100 mm/s²
+    return velocity;
 }
 
 void mp_test_circle(void) 
