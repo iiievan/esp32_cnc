@@ -50,7 +50,6 @@ typedef enum
     BLOCK_RUNNING
 } blockState_t;
 
-
 typedef enum 
 {
     SECTION_NA = -1,
@@ -68,7 +67,6 @@ typedef enum
     SECTION_2nd_HALF
 } sectionState_t;
 
-// Параметры одной оси
 typedef struct 
 {
     float jerk_max;
@@ -254,27 +252,15 @@ extern mpMoveRuntime_t     mr;
 extern mpBuf_t             bf; 
 
 void mp_init(void);
-
-// Вычисление длины сегмента и скорости
-float mp_get_target_velocity(const float Vi, const float L, const mpBuf_t *bf);
-
-// Вычисление длины для заданных скоростей
-float mp_get_target_length(const float Vi, const float Vf, const mpBuf_t *bf);
-
-// --------------------------------------------------------------------------
-// mp_aline() - главная функция планирования S-кривой
-// --------------------------------------------------------------------------
 bool mp_aline(float target_x, float target_y, float feed_rate);
-
-// --------------------------------------------------------------------------
-// mp_exec_aline() - генерация шагов в таймере
-// --------------------------------------------------------------------------
 stat_t mp_exec_aline(mpBuf_t *bf);
 
-void start_motion_timer(void);
-void stop_motion_timer(void);
-
-void mp_test_circle(void);
+static inline float uSec(float minutes) { return minutes * MICROSECONDS_PER_MINUTE; }
+float mp_get_target_velocity(const float Vi, const float L, const mpBuf_t *bf);
+float mp_get_target_length(const float Vi, const float Vf, const mpBuf_t *bf);
+const char* block_state_to_str(blockState_t state); 
+const char* section_to_str(moveSection_t section); 
+const char* section_state_to_str(sectionState_t state);
 
 #ifdef __cplusplus
 }
