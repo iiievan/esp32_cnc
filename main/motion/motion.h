@@ -75,7 +75,7 @@ typedef struct
 } axis_param_t;
 
 #define AXIS_PARAM_DEFAULT() { \
-    .jerk_max = 10.0f, \
+    .jerk_max = 25.0f, \
     .recip_jerk = 1.0f, \
     .junction_dev = 0.01f \
 }
