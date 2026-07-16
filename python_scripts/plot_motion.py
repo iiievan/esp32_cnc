@@ -52,7 +52,7 @@ def plot_velocity_vs_time(motion_data, output_dir):
     time_start = time[0]
     time_rel = time - time_start
     
-    plt.figure(figsize=(14, 8))
+    plt.figure(figsize=(28, 16))
     plt.title('S-curve Velocity Profile vs Time', fontsize=16)
     plt.plot(time_rel, velocity, linewidth=2, color='blue')
     plt.xlabel('Time [s]', fontsize=14)
@@ -92,7 +92,7 @@ def plot_xy_trajectory(motion_data, output_dir):
     # Вычисляем расстояние и направление
     distance = np.sqrt((end_x - start_x)**2 + (end_y - start_y)**2)
     
-    plt.figure(figsize=(12, 12))
+    plt.figure(figsize=(24, 24))
     plt.title(f'XY Trajectory (Distance: {distance:.2f} mm)', fontsize=16)
     plt.plot(pos_x, pos_y, linewidth=2, color='blue', label='Path')
     
@@ -149,7 +149,7 @@ def plot_velocity_vs_position(motion_data, output_dir):
         dy = pos_y[i] - pos_y[i-1]
         distance[i] = distance[i-1] + np.sqrt(dx**2 + dy**2)
     
-    plt.figure(figsize=(14, 8))
+    plt.figure(figsize=(24, 16))
     plt.title('Velocity vs Distance Along Path', fontsize=16)
     plt.plot(distance, velocity, linewidth=2, color='green')
     plt.xlabel('Distance along path [mm]', fontsize=14)
