@@ -58,6 +58,8 @@ void mp_init(void)
             ESP_LOGE(TAG, "Failed to create motion_complete_sem");
         }
     }
+
+    motion_timer_init();
     
     ESP_LOGI(TAG, "Motion controller initialized");
 }
@@ -329,20 +331,3 @@ static float _get_junction_vmax(const float a_unit[], const float b_unit[])
     return velocity;
 }
 
-void mp_test_circle(void) 
-{
-    float radius = 10.0f;
-    int segments = 36;
-    
-    for (int i = 0; i <= segments; i++) 
-    {
-        float angle = 2.0f * M_PI * i / segments;
-        float x = radius * cosf(angle);
-        float y = radius * sinf(angle);
-        mp_aline(x, y, 100.0f);
-        vTaskDelay(pdMS_TO_TICKS(100));
-    }
-    
-    // Возврат в центр
-    mp_aline(0, 0, 100.0);
-}

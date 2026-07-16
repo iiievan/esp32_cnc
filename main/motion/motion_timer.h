@@ -5,9 +5,10 @@
 extern "C" {
 #endif
 
+void motion_timer_init(void);
 void start_motion_timer(void);
 void stop_motion_timer(void);
-void mp_test_circle(void);
+
 
 #ifdef __cplusplus
 }
