@@ -127,14 +127,21 @@ void planner_task(void *arg)
             }
             else
             {
-                // Планировщик занят - ждем
-                vTaskDelay(pdMS_TO_TICKS(10));
+                // Планировщик занят - ждем либо семафор либо задержку если семафора нет.
+                if (motion_complete_sem != NULL) 
+                {
+                    xSemaphoreTake(motion_complete_sem, portMAX_DELAY);
+                }
+                else 
+                {
+                    vTaskDelay(pdMS_TO_TICKS(10)); // Резервный вариант
+                }
             }
         }
         else
         {
             // Очередь пуста - ждем
-            vTaskDelay(pdMS_TO_TICKS(50));
+            vTaskDelay(pdMS_TO_TICKS(10));
         }
     }
 }

@@ -1,11 +1,6 @@
 #include "motion.h"
 #include "motion_timer.h"
-#include "esp_log.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
 
-
-//#define DBG_LOG
 
 static const char *TAG = "MOT_PLAN";
 
@@ -20,6 +15,8 @@ axis_param_t axis_params[AXES] =
 mpMoveMaster_t      mm = MPMOVE_MASTER_INIT();
 mpMoveRuntime_t     mr = MPMOVE_RUNTIME_INIT();
 mpBuf_t             bf = MPBUF_INIT();   
+SemaphoreHandle_t bf_mutex = NULL; // мьютекс для защиты буфера.
+SemaphoreHandle_t motion_complete_sem = NULL;   // семафор для обозначения окончания движения
 
 // Предыдущий unit-вектор для расчета junction_velocity
 static float prev_unit[AXES] = {0.0f, 0.0f};
@@ -42,6 +39,24 @@ void mp_init(void)
     for (int i = 0; i < AXES; i++) 
     {
         axis_params[i].recip_jerk = 1.0f / axis_params[i].jerk_max;
+    }
+
+    if (bf_mutex == NULL) 
+    {
+        bf_mutex = xSemaphoreCreateMutex();
+        if (bf_mutex == NULL) 
+        {
+            ESP_LOGE(TAG, "Failed to create bf_mutex");
+        }
+    }
+
+    if (motion_complete_sem == NULL) 
+    {
+        motion_complete_sem = xSemaphoreCreateBinary();
+        if (motion_complete_sem == NULL) 
+        {
+            ESP_LOGE(TAG, "Failed to create motion_complete_sem");
+        }
     }
     
     ESP_LOGI(TAG, "Motion controller initialized");
@@ -84,147 +99,157 @@ bool mp_aline(float target_x, float target_y, float feed_rate)
         return true; // Возвращаем true, так как уже в этой позиции
     }
 
-    // Очищаем буфер
-    memset(&bf, 0, sizeof(mpBuf_t));
-    bf.block_state = BLOCK_RUNNING; 
-    
-    // Вычисляем длины по осям
-    float axis_length[AXES];
-    float axis_square[AXES];
-    float length_square = 0;
-    
-    axis_length[0] = target_x - mm.position[0]; // X
-    axis_length[1] = target_y - mm.position[1]; // Y
-    
-    for (int i = 0; i < AXES; i++) 
+    if (xSemaphoreTake(bf_mutex, portMAX_DELAY) == pdTRUE) 
     {
-        axis_square[i] = square(axis_length[i]);
-        length_square += axis_square[i];
-    }
+        // Очищаем буфер
+        memset(&bf, 0, sizeof(mpBuf_t));
+        bf.block_state = BLOCK_RUNNING; 
     
-    bf.length = sqrtf(length_square);
-
-    ESP_LOGI(TAG, "  bf.length = %.4f", bf.length);
-    
-    if (fp_ZERO(bf.length)) 
-    {
-        ESP_LOGW(TAG, "Zero length move");
-        return false;
-    }
-    
-    // Устанавливаем feed rate
-    bf.gm.feed_rate = feed_rate; // мм/мин
-    
-    // Вычисляем время движения
-    _calc_move_times(&bf, axis_length, axis_square);
-
-    ESP_LOGI(TAG, "  bf.gm.move_time = %.6f min", bf.gm.move_time);
-    
-    // Вычисляем единичный вектор и jerk
-    float maxC = 0;
-    float recip_L2 = 1.0f / length_square;
-    
-    for (int axis = 0; axis < AXES; axis++) 
-    {
-        if (fabs(axis_length[axis]) > 0) 
+        // Вычисляем длины по осям
+        float axis_length[AXES];
+        float axis_square[AXES];
+        float length_square = 0;
+        
+        axis_length[0] = target_x - mm.position[0]; // X
+        axis_length[1] = target_y - mm.position[1]; // Y
+        
+        for (int i = 0; i < AXES; i++) 
         {
-            bf.unit[axis] = axis_length[axis] / bf.length;
-            float C = axis_square[axis] * recip_L2 * axis_params[axis].recip_jerk;
-            if (C > maxC) 
+            axis_square[i] = square(axis_length[i]);
+            length_square += axis_square[i];
+        }
+
+        bf.length = sqrtf(length_square);
+
+        ESP_LOGI(TAG, "  bf.length = %.4f", bf.length);
+
+        if (fp_ZERO(bf.length)) 
+        {
+            ESP_LOGW(TAG, "Zero length move");
+            return false;
+        }
+
+        // Устанавливаем feed rate
+        bf.gm.feed_rate = feed_rate; // мм/мин
+        
+        // Вычисляем время движения
+        _calc_move_times(&bf, axis_length, axis_square);
+
+        ESP_LOGI(TAG, "  bf.gm.move_time = %.6f min", bf.gm.move_time);
+        
+        // Вычисляем единичный вектор и jerk
+        float maxC = 0;
+        float recip_L2 = 1.0f / length_square;
+        
+        for (int axis = 0; axis < AXES; axis++) 
+        {
+            if (fabs(axis_length[axis]) > 0) 
             {
-                maxC = C;
-                bf.jerk_axis = axis;
+                bf.unit[axis] = axis_length[axis] / bf.length;
+                float C = axis_square[axis] * recip_L2 * axis_params[axis].recip_jerk;
+                if (C > maxC) 
+                {
+                    maxC = C;
+                    bf.jerk_axis = axis;
+                }
             }
         }
-    }
-    
-    bf.jerk = axis_params[bf.jerk_axis].jerk_max * JERK_MULTIPLIER / fabs(bf.unit[bf.jerk_axis]);
-    bf.recip_jerk = 1.0f / bf.jerk;
-    bf.cbrt_jerk = cbrtf(bf.jerk);
 
-    ESP_LOGI(TAG, "  bf.jerk = %.2f, axis=%d", bf.jerk, bf.jerk_axis);
-    
-    // Устанавливаем скорости
-    bf.cruise_vmax = bf.length / bf.gm.move_time; 
-    
-    // Junction velocity с учетом предыдущего движения
-    float junction_velocity = _get_junction_vmax(prev_unit, bf.unit);
-    // Сохраняем текущий unit для следующего движения
-    copy_vector(prev_unit, bf.unit);
-    
-    // exact_stop = большое число (нет точной остановки)
-    float exact_stop = 8675309.0f;
-    bf.replannable = true;
-    
-    bf.entry_vmax = min3(bf.cruise_vmax, junction_velocity, exact_stop);
-    bf.delta_vmax = mp_get_target_velocity(0.0f, bf.length, &bf);
-    bf.exit_vmax = min3(bf.cruise_vmax, (bf.entry_vmax + bf.delta_vmax), exact_stop);
-    bf.braking_velocity = bf.delta_vmax;
-    bf.entry_velocity = bf.entry_vmax;
-    bf.cruise_velocity = bf.cruise_vmax;
-    bf.exit_velocity = 0.0f;
+        bf.jerk = axis_params[bf.jerk_axis].jerk_max * JERK_MULTIPLIER / fabs(bf.unit[bf.jerk_axis]);
+        bf.recip_jerk = 1.0f / bf.jerk;
+        bf.cbrt_jerk = cbrtf(bf.jerk);
 
+        ESP_LOGI(TAG, "  bf.jerk = %.2f, axis=%d", bf.jerk, bf.jerk_axis);
 
-    ESP_LOGI(TAG, "  speeds: entry=%.2f, cruise=%.2f, exit=%.2f", 
-             bf.entry_velocity, bf.cruise_velocity, bf.exit_velocity);
+        // Устанавливаем скорости
+        bf.cruise_vmax = bf.length / bf.gm.move_time; 
 
-    float total_length = bf.length;
-    float v_entry = bf.entry_velocity;
-    float v_cruise = bf.cruise_velocity;
-    float v_exit = bf.exit_velocity;
+        // Junction velocity с учетом предыдущего движения
+        float junction_velocity = _get_junction_vmax(prev_unit, bf.unit);
+        // Сохраняем текущий unit для следующего движения
+        copy_vector(prev_unit, bf.unit);
 
-    bf.head_length = mp_get_target_length(v_entry, v_cruise, &bf);
-    bf.tail_length = mp_get_target_length(v_cruise, v_exit, &bf);
-    if (bf.tail_length < 0) bf.tail_length = -bf.tail_length;
-    bf.body_length = total_length - bf.head_length - bf.tail_length;
+        // exact_stop = большое число (нет точной остановки)
+        float exact_stop = 8675309.0f;
+        bf.replannable = true;
 
-    ESP_LOGI(TAG, "  lengths: head=%.4f, body=%.4f, tail=%.4f", 
-             bf.head_length, bf.body_length, bf.tail_length);
+        bf.entry_vmax = min3(bf.cruise_vmax, junction_velocity, exact_stop);
+        bf.delta_vmax = mp_get_target_velocity(0.0f, bf.length, &bf);
+        bf.exit_vmax = min3(bf.cruise_vmax, (bf.entry_vmax + bf.delta_vmax), exact_stop);
+        bf.braking_velocity = bf.delta_vmax;
+        bf.entry_velocity = bf.entry_vmax;
+        bf.cruise_velocity = bf.cruise_vmax;
+        bf.exit_velocity = 0.0f;
 
-    // Если сумма head + tail больше общей длины — пропорционально уменьшаем
-    if (bf.body_length < 0) 
-    {
-        float total_accel = bf.head_length + bf.tail_length;
-        if (total_accel > 0) 
-        {
-            bf.head_length = (bf.head_length / total_accel) * total_length;
-            bf.tail_length = (bf.tail_length / total_accel) * total_length;
-            bf.body_length = 0.0f;
-        }
-        ESP_LOGI(TAG, "  corrected: head=%.4f, body=%.4f, tail=%.4f", 
+        ESP_LOGI(TAG, "  speeds: entry=%.2f, cruise=%.2f, exit=%.2f", 
+                 bf.entry_velocity, bf.cruise_velocity, bf.exit_velocity);
+
+        float total_length = bf.length;
+        float v_entry = bf.entry_velocity;
+        float v_cruise = bf.cruise_velocity;
+        float v_exit = bf.exit_velocity;
+
+        bf.head_length = mp_get_target_length(v_entry, v_cruise, &bf);
+        bf.tail_length = mp_get_target_length(v_cruise, v_exit, &bf);
+        if (bf.tail_length < 0) bf.tail_length = -bf.tail_length;
+        bf.body_length = total_length - bf.head_length - bf.tail_length;
+
+        ESP_LOGI(TAG, "  lengths: head=%.4f, body=%.4f, tail=%.4f", 
                  bf.head_length, bf.body_length, bf.tail_length);
+
+        // Если сумма head + tail больше общей длины — пропорционально уменьшаем
+        if (bf.body_length < 0) 
+        {
+            float total_accel = bf.head_length + bf.tail_length;
+            if (total_accel > 0) 
+            {
+                bf.head_length = (bf.head_length / total_accel) * total_length;
+                bf.tail_length = (bf.tail_length / total_accel) * total_length;
+                bf.body_length = 0.0f;
+            }
+            ESP_LOGI(TAG, "  corrected: head=%.4f, body=%.4f, tail=%.4f", 
+                     bf.head_length, bf.body_length, bf.tail_length);
+        }
+
+        float total_move_time = bf.gm.move_time * 60.0f;
+        mr.segments = ceilf(total_move_time / (NOM_SEGMENT_USEC / 1000000.0f));
+        if (mr.segments < 10) mr.segments = 10;    
+
+        ESP_LOGI(TAG, "  mr.segments = %.0f", mr.segments);
+
+        mr.block_state = BLOCK_IDLE;
+        mr.section = SECTION_HEAD;
+        mr.section_state = SECTION_OFF;
+
+        for (int i = 0; i < AXES; i++) 
+        {
+            mr.unit[i] = bf.unit[i];
+            mr.target[i] = mm.position[i] + axis_length[i];
+            mr.position[i] = mm.position[i];
+        }
+
+        mr.head_length = bf.head_length;
+        mr.body_length = bf.body_length;
+        mr.tail_length = bf.tail_length;
+
+        mr.entry_velocity = bf.entry_velocity;
+        mr.cruise_velocity = bf.cruise_velocity;
+        mr.exit_velocity = bf.exit_velocity;
+
+        copy_vector(mm.position, bf.gm.target); 
+
+        ESP_LOGI(TAG, "Move planned: target=(%.2f, %.2f), length=%.2f, time=%.3f min, jerk=%.2f, segments=%.0f", 
+                 target_x, target_y, bf.length, bf.gm.move_time, bf.jerk, mr.segments);
+
+        xSemaphoreGive(bf_mutex);   // отдаем мьютекс более высокопреоритетной задаче выполения движения stat_t mp_exec_aline(mpBuf_t *bf) 
     }
-
-    float total_move_time = bf.gm.move_time * 60.0f;
-    mr.segments = ceilf(total_move_time / (NOM_SEGMENT_USEC / 1000000.0f));
-    if (mr.segments < 10) mr.segments = 10;    
-
-    ESP_LOGI(TAG, "  mr.segments = %.0f", mr.segments);
-
-    mr.block_state = BLOCK_IDLE;
-    mr.section = SECTION_HEAD;
-    mr.section_state = SECTION_NEW;
-    
-    for (int i = 0; i < AXES; i++) 
+    else
     {
-        mr.unit[i] = bf.unit[i];
-        mr.target[i] = mm.position[i] + axis_length[i];
-        mr.position[i] = mm.position[i];
+#ifdef DBG_PLANNER_LOG
+        ESP_LOGE(TAG, "Failed to take mutex in mp_aline");
+#endif
+        return false;
     }
-    
-    mr.head_length = bf.head_length;
-    mr.body_length = bf.body_length;
-    mr.tail_length = bf.tail_length;
-    
-    mr.entry_velocity = bf.entry_velocity;
-    mr.cruise_velocity = bf.cruise_velocity;
-    mr.exit_velocity = bf.exit_velocity;
-    
-    copy_vector(mm.position, bf.gm.target); 
-
-    ESP_LOGI(TAG, "Move planned: target=(%.2f, %.2f), length=%.2f, time=%.3f min, jerk=%.2f, segments=%.0f", 
-             target_x, target_y, bf.length, bf.gm.move_time, bf.jerk, mr.segments);
-   
     // Запускаем генерацию шагов (в таймере)
     // Здесь вызываем функцию, которая инициализирует таймер
     start_motion_timer();

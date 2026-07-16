@@ -5,10 +5,17 @@
 #include <string.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "esp_log.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+#define DBG_PLANNER_LOG
+
+
 
 #define AXES                    (2)             // X, Y
 #define MOTORS                  (2)             // X, Y
@@ -250,6 +257,8 @@ typedef struct
 extern mpMoveMaster_t      mm;
 extern mpMoveRuntime_t     mr;
 extern mpBuf_t             bf; 
+extern SemaphoreHandle_t bf_mutex;
+extern SemaphoreHandle_t motion_complete_sem;
 
 void mp_init(void);
 bool mp_aline(float target_x, float target_y, float feed_rate);

@@ -1,11 +1,23 @@
 #include "motion.h"
 #include "esp_timer.h"
 
+
 esp_timer_handle_t motion_timer = NULL;
 
 static void motion_timer_callback(void *arg) 
 {
-    mp_exec_aline(&bf);
+    if (xSemaphoreTake(bf_mutex, 0) == pdTRUE) 
+    {
+        mp_exec_aline(&bf); 
+
+        xSemaphoreGive(bf_mutex);
+    }
+    else
+    {
+#ifdef DBG_PLANNER_LOG
+        ESP_LOGW("TIMER", "Database busy, skipping tick");
+#endif       
+    }
 }
 
 void start_motion_timer(void) 

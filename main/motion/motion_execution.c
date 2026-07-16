@@ -1,6 +1,5 @@
 #include "motion.h"
 #include "motion_timer.h"
-#include "esp_log.h"
 #include "esp_timer.h"
 
 
@@ -81,7 +80,7 @@ stat_t mp_exec_aline(mpBuf_t *bf)
         return STAT_NOOP;
     }
     
-    if (mr.block_state == BLOCK_IDLE) 
+    if (mr.section_state == SECTION_OFF) 
     {
         log_promt();
 
@@ -145,6 +144,11 @@ stat_t mp_exec_aline(mpBuf_t *bf)
         stop_motion_timer();
 
         ESP_LOGI(TAG, "MOVE COMPLETED AT (%.2f, %.2f)", mr.position[0], mr.position[1]);
+        
+        if (motion_complete_sem != NULL) 
+        {
+            xSemaphoreGive(motion_complete_sem);
+        }
     }
 
     void track_motion_states();
