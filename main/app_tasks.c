@@ -197,7 +197,8 @@ void planner_task(void *arg)
             {
                 grbl_cmd_queues_pop(&cmd_queues, &cmd);
 
-                if (is_zero_move_default(cmd.target_x, cmd.target_y))
+                if (is_zero_move_default(cmd.target_x, cmd.target_y) || 
+                   (!cmd.is_urgent && !cmd.is_motion))
                     continue;
 
                 if (mp_aline(cmd.target_x, cmd.target_y, cmd.speed))
