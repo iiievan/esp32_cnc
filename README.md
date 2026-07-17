@@ -32,10 +32,13 @@
 Использование таймера ESP32-S3  для генерации STEP/DIR-импульсов.
 
 # Использованное оборудование и софт
-Для проекта использован аналог платы [ESP32-S3-ETH](https://www.waveshare.com/esp32-s3-eth.htm?srsltid=AfmBOopPZeZcTsBZvzxZFlleu8cFTIndNpnVzzSbYrATIGDTH3OGj9cu) от wiveshare.
+Для проекта использован аналог платы [ESP32-S3-ETH](https://www.waveshare.com/esp32-s3-eth.htm?srsltid=AfmBOopPZeZcTsBZvzxZFlleu8cFTIndNpnVzzSbYrATIGDTH3OGj9cu) от Waveshare.
 Подключение было через USB-C - для отладки по встроенному JTAG и через RJ45 на плате для реализации 
 физического уровня TCP-IP. Так же использован роутер Keenteic extra 3300(может быть использован любой) без доступа к интернету и служащий маршрутизатором между рабочей станций (ПК, где запускается клиент GRBL и ESP32S3ETH - на которой реализован UDP сервер GRBL получающий команды и выполняющий их).
 ![connections](./pictures/esp32s3eth.jpg) Для создания, сборки и отладки проекта был использован VS Code с установленным плагином ESP_IDF.
+
+### Схема выводов платы
+![pinout](./pictures/esp32s3eth_pins.jpg)
 
 # Сборка и запуск
 
