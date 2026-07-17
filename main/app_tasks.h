@@ -7,8 +7,13 @@ extern "C" {
 
 #define INVALID_SOCKET      -1
 #define UDP_BUFFER_SIZE     256
+#define UART_BUFFER_SIZE    256
+
+void grbl_cmd_queues_setup(void);
 
 void udp_server_task(void *arg);
+
+void uart_grbl_task(void *arg);
 
 void planner_task(void *arg);
 

@@ -51,6 +51,20 @@ static inline uint8_t grbl_queue_count(const grbl_queue_t *queue) { return queue
 
 void grbl_queue_clear(grbl_queue_t *queue);
 
+typedef struct
+{
+    grbl_queue_t udp;
+    grbl_queue_t uart;
+} grbl_cmd_queues_t;
+
+void grbl_cmd_queues_init(grbl_cmd_queues_t *queues);
+
+bool grbl_cmd_queues_push(grbl_cmd_queues_t *queues, const grbl_command_t *cmd, bool high_priority);
+
+bool grbl_cmd_queues_peek(grbl_cmd_queues_t *queues, grbl_command_t *cmd);
+
+bool grbl_cmd_queues_pop(grbl_cmd_queues_t *queues, grbl_command_t *cmd);
+
 #ifdef __cplusplus
 }
 #endif

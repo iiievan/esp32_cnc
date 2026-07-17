@@ -11,4 +11,25 @@ menu "Example options"
         range 1 65535
         help
             TCP server port.
+
+    config GRBL_UART_BAUD_RATE
+        int "GRBL UART baud rate"
+        default 115200
+        range 9600 921600
+        help
+            Baud rate for GRBL commands on UART1.
+
+    config GRBL_UART_TX_PIN
+        int "GRBL UART TX GPIO"
+        default 17
+        range -1 48
+        help
+            UART1 TX pin for GRBL responses.
+
+    config GRBL_UART_RX_PIN
+        int "GRBL UART RX GPIO"
+        default 18
+        range -1 48
+        help
+            UART1 RX pin for GRBL commands.
 endmenu

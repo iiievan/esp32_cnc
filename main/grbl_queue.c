@@ -93,3 +93,33 @@ void grbl_queue_clear(grbl_queue_t *queue)
 
     xSemaphoreGive(queue->mutex);
 }
+
+void grbl_cmd_queues_init(grbl_cmd_queues_t *queues)
+{
+    grbl_queue_init(&queues->udp);
+    grbl_queue_init(&queues->uart);
+}
+
+bool grbl_cmd_queues_push(grbl_cmd_queues_t *queues, const grbl_command_t *cmd, bool high_priority)
+{
+    if (high_priority)
+        return grbl_queue_push(&queues->udp, cmd);
+
+    return grbl_queue_push(&queues->uart, cmd);
+}
+
+bool grbl_cmd_queues_peek(grbl_cmd_queues_t *queues, grbl_command_t *cmd)
+{
+    if (grbl_queue_peek(&queues->udp, cmd))
+        return true;
+
+    return grbl_queue_peek(&queues->uart, cmd);
+}
+
+bool grbl_cmd_queues_pop(grbl_cmd_queues_t *queues, grbl_command_t *cmd)
+{
+    if (grbl_queue_pop(&queues->udp, cmd))
+        return true;
+
+    return grbl_queue_pop(&queues->uart, cmd);
+}

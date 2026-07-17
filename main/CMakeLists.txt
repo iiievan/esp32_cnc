@@ -8,6 +8,7 @@ idf_component_register(
         esp_eth 
         esp_netif
         driver
+        esp_driver_uart
         nvs_flash
         motion
     INCLUDE_DIRS "."
