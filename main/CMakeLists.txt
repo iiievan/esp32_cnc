@@ -2,7 +2,8 @@ idf_component_register(
     SRCS 
         "udp_server.cpp"
         "app_tasks.cpp"
-        "grbl_queue.cpp"
+        "ring_buffer.hpp"
+        "grblQueue.cpp"
         "grbl_parser.cpp"       
     PRIV_REQUIRES 
         esp_eth 

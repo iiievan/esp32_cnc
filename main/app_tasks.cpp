@@ -2,7 +2,7 @@
 #include "motion/motion.h"
 #include <stdio.h>
 #include <string.h>
-#include "grbl_queue.h"
+#include "grblQueue.hpp"
 #include "grbl_parser.h"
 #include "esp_log.h"
 #include "lwip/sockets.h"
@@ -12,8 +12,6 @@
 
 static const char *TAG_UDP = "udp_grbl_server";
 static const char *TAG_UART = "uart_grbl_server";
-
-static grbl_cmd_queues_t cmd_queues;
 
 static bool build_grbl_command(const char *line, grbl_command_t *cmd, parsed_command_t *parsed)
 {
@@ -44,14 +42,10 @@ static bool queue_grbl_line(const char *line, bool high_priority, parsed_command
 {
     grbl_command_t cmd;
 
-    build_grbl_command(line, &cmd, parsed);
+    if (!build_grbl_command(line, &cmd, parsed)) 
+        return false;
 
-    return grbl_cmd_queues_push(&cmd_queues, &cmd, high_priority);
-}
-
-void grbl_cmd_queues_setup(void)
-{
-    grbl_cmd_queues_init(&cmd_queues);
+    return grbl_cmd_dispatcher.push(std::move(cmd), high_priority);
 }
 
 void udp_server_task(void *arg)
@@ -187,15 +181,15 @@ void uart_grbl_task(void *arg)
 
 void planner_task(void *arg)
 {
-    grbl_command_t cmd;
-
     while (1)
     {
-        if (grbl_cmd_queues_peek(&cmd_queues, &cmd))
+        if (auto cmd_opt = grbl_cmd_dispatcher.peek())
         {
+            grbl_command_t cmd = *cmd_opt;
+
             if (mr.block_state != BLOCK_RUNNING)
             {
-                grbl_cmd_queues_pop(&cmd_queues, &cmd);
+                grbl_cmd_dispatcher.pop();
 
                 if (is_zero_move_default(cmd.target_x, cmd.target_y) || 
                    (!cmd.is_urgent && !cmd.is_motion))

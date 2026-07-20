@@ -123,8 +123,6 @@ extern "C" void app_main()
 
     mp_init();  // init motion planner
 
-    grbl_cmd_queues_setup();
-
     xTaskCreate(udp_server_task, "udp_server", 8192, NULL, 5, NULL);
     xTaskCreate(uart_grbl_task, "uart_grbl", 4096, NULL, 5, NULL);
     xTaskCreate(planner_task, "planner", 4096, NULL, 4, NULL);
