@@ -1,9 +1,9 @@
 idf_component_register(
     SRCS 
-        "udp_server.c"
-        "app_tasks.c"
-        "grbl_queue.c"
-        "grbl_parser.c"       
+        "udp_server.cpp"
+        "app_tasks.cpp"
+        "grbl_queue.cpp"
+        "grbl_parser.cpp"       
     PRIV_REQUIRES 
         esp_eth 
         esp_netif

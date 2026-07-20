@@ -1,9 +1,9 @@
 idf_component_register(
     SRCS 
-        "motion_planner.c"
-        "motion_execution.c"
-        "motion_utils.c"
-        "motion_timer.c"
+        "motion_planner.cpp"
+        "motion_execution.cpp"
+        "motion_utils.cpp"
+        "motion_timer.cpp"
     INCLUDE_DIRS "."
     REQUIRES 
         driver

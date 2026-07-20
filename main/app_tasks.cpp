@@ -117,15 +117,15 @@ void udp_server_task(void *arg)
 void uart_grbl_task(void *arg)
 {
     const uart_port_t uart_num = UART_NUM_1;
-    uart_config_t uart_config = {
-        .baud_rate = CONFIG_GRBL_UART_BAUD_RATE,
-        .data_bits = UART_DATA_8_BITS,
-        .parity = UART_PARITY_DISABLE,
-        .stop_bits = UART_STOP_BITS_1,
-        .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
-        .source_clk = UART_SCLK_DEFAULT,
-    };
 
+    uart_config_t uart_config = {};
+    uart_config.baud_rate = CONFIG_GRBL_UART_BAUD_RATE;
+    uart_config.data_bits = UART_DATA_8_BITS;
+    uart_config.parity = UART_PARITY_DISABLE;
+    uart_config.stop_bits = UART_STOP_BITS_1;
+    uart_config.flow_ctrl = UART_HW_FLOWCTRL_DISABLE;
+    uart_config.source_clk = UART_SCLK_DEFAULT;
+    
     ESP_ERROR_CHECK(uart_param_config(uart_num, &uart_config));
     ESP_ERROR_CHECK(uart_set_pin(uart_num,
                                  CONFIG_GRBL_UART_TX_PIN,

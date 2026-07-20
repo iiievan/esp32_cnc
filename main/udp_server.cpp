@@ -51,7 +51,7 @@ static void get_local_mac(uint8_t *mac_out)
     memcpy(mac_out, base_mac, 6);
 }
 
-void app_main(void)
+extern "C" void app_main()
 {
     // Init GPIO ISR for W5500 SPI
     ESP_ERROR_CHECK(gpio_install_isr_service(0));
@@ -65,25 +65,25 @@ void app_main(void)
     }
 
     // SPI bus and device init
-    spi_bus_config_t buscfg = 
-    {
-        .mosi_io_num = PIN_SPI_MOSI,
-        .miso_io_num = PIN_SPI_MISO,
-        .sclk_io_num = PIN_SPI_SCLK,
-        .quadwp_io_num = -1,
-        .quadhd_io_num = -1,
-        .max_transfer_sz = 4096,
-    };
+    spi_bus_config_t buscfg = {};
+
+    buscfg.mosi_io_num = PIN_SPI_MOSI;
+    buscfg.miso_io_num = PIN_SPI_MISO;
+    buscfg.sclk_io_num = PIN_SPI_SCLK;
+    buscfg.quadwp_io_num = -1;
+    buscfg.quadhd_io_num = -1;
+    buscfg.max_transfer_sz = 4096;
+
     ESP_ERROR_CHECK(spi_bus_initialize(SPI2_HOST, &buscfg, SPI_DMA_CH_AUTO));
 
     // Init W5500 mac and phy esp-idf layers
-    spi_device_interface_config_t spi_devcfg = 
-    {
-        .mode = 0,
-        .clock_speed_hz = 25 * 1000 * 1000,
-        .spics_io_num = PIN_SPI_CS,
-        .queue_size = 20,
-    };    
+    spi_device_interface_config_t spi_devcfg = {};
+
+    spi_devcfg.mode = 0;
+    spi_devcfg.clock_speed_hz = 25 * 1000 * 1000;
+    spi_devcfg.spics_io_num = PIN_SPI_CS;
+    spi_devcfg.queue_size = 20;
+   
     eth_w5500_config_t w5500_config = ETH_W5500_DEFAULT_CONFIG(SPI2_HOST, &spi_devcfg);
     w5500_config.base.int_gpio_num = PIN_W5500_INT;
     

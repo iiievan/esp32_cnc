@@ -15,8 +15,6 @@ extern "C" {
 
 #define DBG_PLANNER_LOG
 
-
-
 #define AXES                    (2)             // X, Y
 #define MOTORS                  (2)             // X, Y
 #define MICROSECONDS_PER_MINUTE (60000000.0f)
@@ -149,6 +147,7 @@ typedef struct mpBuf
 } mpBuf_t;
 
 #define MPBUF_INIT() { \
+    .block_state = BLOCK_IDLE, \
     .unit = {0.0f, 0.0f}, \
     .length = 0.0f, \
     .head_length = 0.0f, \
@@ -166,7 +165,8 @@ typedef struct mpBuf
     .jerk_axis = 0, \
     .jerk = 0.0f, \
     .recip_jerk = 0.0f, \
-    .cbrt_jerk = 0.0f \
+    .cbrt_jerk = 0.0f, \
+    .gm = {} \
 }
 
 // Глобальные структуры (mm - master, mr - runtime)
@@ -251,7 +251,8 @@ typedef struct
     .forward_diff_2 = 0.0f, \
     .forward_diff_3 = 0.0f, \
     .forward_diff_4 = 0.0f, \
-    .forward_diff_5 = 0.0f \
+    .forward_diff_5 = 0.0f, \
+    .gm = {} \
 }
 
 extern mpMoveMaster_t      mm;

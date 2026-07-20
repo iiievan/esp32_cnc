@@ -1,7 +1,12 @@
 #include "motion.h"
 #include "motion_timer.h"
 
-
+extern "C" 
+{
+    void motion_timer_init(void);
+    void start_motion_timer(void);
+    void stop_motion_timer(void);
+}
 static const char *TAG = "MOT_PLAN";
 
 // Параметры оси (пример для X и Y)
@@ -12,9 +17,9 @@ axis_param_t axis_params[AXES] =
 };
 
 // Глобальные переменные
-mpMoveMaster_t      mm = MPMOVE_MASTER_INIT();
-mpMoveRuntime_t     mr = MPMOVE_RUNTIME_INIT();
-mpBuf_t             bf = MPBUF_INIT();   
+mpMoveMaster_t      mm = MPMOVE_MASTER_INIT();      // фактическая позиция и параметры движения
+mpBuf_t             bf = MPBUF_INIT();              // планируемое движение 
+mpMoveRuntime_t     mr = MPMOVE_RUNTIME_INIT();     // исполнение запланированного движения 
 SemaphoreHandle_t bf_mutex = NULL; // мьютекс для защиты буфера.
 SemaphoreHandle_t motion_complete_sem = NULL;   // семафор для обозначения окончания движения
 

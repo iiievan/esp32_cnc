@@ -21,23 +21,23 @@ static void motion_timer_callback(void *arg)
     }
 }
 
-void motion_timer_init(void) 
+extern "C" void motion_timer_init(void) 
 {
     if (motion_timer == NULL) 
     {
-        esp_timer_create_args_t timer_args = 
-        {
-            .callback = &motion_timer_callback,
-            .arg = NULL,
-            .name = "motion_timer"
-        };
+        esp_timer_create_args_t timer_args = {};
+
+        timer_args.callback = &motion_timer_callback;
+        timer_args.arg = NULL;
+        timer_args.name = "motion_timer";
+
         ESP_ERROR_CHECK(esp_timer_create(&timer_args, &motion_timer));
         timer_running = false;
         ESP_LOGI("TIMER", "Motion timer created successfully");
     }
 }
 
-void start_motion_timer(void) 
+extern "C" void start_motion_timer(void) 
 {
     if (motion_timer != NULL && !timer_running) 
     {
@@ -50,7 +50,7 @@ void start_motion_timer(void)
     }
 }
 
-void stop_motion_timer(void) 
+extern "C" void stop_motion_timer(void) 
 {
     if (motion_timer != NULL && timer_running) 
     {

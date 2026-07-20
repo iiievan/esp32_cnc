@@ -33,7 +33,7 @@ bool grbl_queue_push(grbl_queue_t *queue, const grbl_command_t *cmd)
     
     memcpy(&queue->buffer[queue->head], cmd, sizeof(grbl_command_t));
     queue->head = (queue->head + 1) % QUEUE_SIZE;
-    queue->count++;
+    queue->count += 1;
     
     xSemaphoreGive(queue->mutex);
     return true;
@@ -55,7 +55,7 @@ bool grbl_queue_pop(grbl_queue_t *queue, grbl_command_t *cmd)
     
     memcpy(cmd, &queue->buffer[queue->tail], sizeof(grbl_command_t));
     queue->tail = (queue->tail + 1) % QUEUE_SIZE;
-    queue->count--;
+    queue->count -= 1;
     
     xSemaphoreGive(queue->mutex);
     return true;
