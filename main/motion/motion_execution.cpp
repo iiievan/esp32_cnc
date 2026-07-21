@@ -45,7 +45,7 @@ static stat_t _exec_aline_segment(void)
     static moveSection_t old_section = SECTION_NA;
     if (mr.section != old_section) 
     {
-        ESP_LOGI(TAG, "Pos old:%.3f, %.3f", mr.position.x, mr.position.x);
+        ESP_LOGI(TAG, "Pos old:%.3f, %.3f", mr.position.x, mr.position.y);
         old_section = mr.section;
     }
 #endif    

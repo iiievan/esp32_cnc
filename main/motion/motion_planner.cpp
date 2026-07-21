@@ -34,6 +34,7 @@ void mp_init(void)
     memset(&mm, 0, sizeof(mm));
     memset(&mr, 0, sizeof(mr));
     memset(&bf, 0, sizeof(bf));
+    prev_unit = MATH::Vector2D<float>::zero();
 
     // reset start position to zero
     mm.position.zero();
