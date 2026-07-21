@@ -87,33 +87,11 @@ typedef struct
 
 // Gcode model state - used by model, planning and runtime
 typedef struct GCodeState 
-{				
-	uint32_t linenum;					// Gcode block line number
-	uint8_t motion_mode;				// Group1: G0, G1, G2, G3, G38.2, G80, G81,
-										// G82, G83 G84, G85, G86, G87, G88, G89
+{											
 	float target[AXES]; 				// XYZABC where the move should go
-	float work_offset[AXES];			// offset from the work coordinate system (for reporting only)
-
 	float move_time;					// optimal time for move given axis constraints
 	float minimum_time;					// minimum time possible for move given axis constraints
 	float feed_rate; 					// F - normalized to millimeters/minute or in inverse time mode
-
-	float spindle_speed;				// in RPM
-	float parameter;					// P - parameter used for dwell time in seconds, G10 coord select...
-
-	uint8_t feed_rate_mode;				// See cmFeedRateMode for settings
-	uint8_t select_plane;				// G17,G18,G19 - values to set plane to
-	uint8_t units_mode;					// G20,G21 - 0=inches (G20), 1 = mm (G21)
-	uint8_t coord_system;				// G54-G59 - select coordinate system 1-9
-	uint8_t absolute_override;			// G53 TRUE = move using machine coordinates - this block only (G53)
-	uint8_t path_control;				// G61... EXACT_PATH, EXACT_STOP, CONTINUOUS
-	uint8_t distance_mode;				// G91   0=use absolute coords(G90), 1=incremental movement
-	uint8_t arc_distance_mode;			// G91.1   0=use absolute coords(G90), 1=incremental movement
-	uint8_t tool;						// M6 tool change - moves "tool_select" to "tool"
-	uint8_t tool_select;				// T value - T sets this value
-	uint8_t mist_coolant;				// TRUE = mist on (M7), FALSE = off (M9)
-	uint8_t flood_coolant;				// TRUE = flood on (M8), FALSE = off (M9)
-	uint8_t spindle_mode;				// 0=OFF (M5), 1=CW (M3), 2=CCW (M4)
 } GCodeState_t;
 
 // Планировщик буфер (у нас будет только один)
@@ -192,15 +170,9 @@ typedef struct
     sectionState_t section_state;
     
     float unit[AXES];
-    bool  axis_flags[AXES];
     float target[AXES];
     float position[AXES];
-    float waypoint[SECTIONS][AXES];   // head, body, tail endpoints
-    
-    float target_steps[MOTORS];
-    float position_steps[MOTORS];
-    float commanded_steps[MOTORS];
-    float following_error[MOTORS];
+    float waypoint[SECTIONS][AXES];   // head, body, tail endpoints   
     
     float head_length;
     float body_length;
@@ -229,14 +201,9 @@ typedef struct
     .section = SECTION_HEAD, \
     .section_state = SECTION_OFF, \
     .unit = {0.0f, 0.0f}, \
-    .axis_flags = {false, false}, \
     .target = {0.0f, 0.0f}, \
     .position = {0.0f, 0.0f}, \
     .waypoint = {{0.0f, 0.0f}, {0.0f, 0.0f}, {0.0f, 0.0f}}, \
-    .target_steps = {0.0f, 0.0f}, \
-    .position_steps = {0.0f, 0.0f}, \
-    .commanded_steps = {0.0f, 0.0f}, \
-    .following_error = {0.0f, 0.0f}, \
     .head_length = 0.0f, \
     .body_length = 0.0f, \
     .tail_length = 0.0f, \

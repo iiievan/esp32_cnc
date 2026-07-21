@@ -3,7 +3,7 @@ idf_component_register(
         "udp_server.cpp"
         "app_tasks.cpp"
         "ring_buffer.hpp"
-        "grblQueue.cpp"
+        "grbl_queue.cpp"
         "grbl_parser.cpp"       
     PRIV_REQUIRES 
         esp_eth 

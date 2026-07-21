@@ -1,9 +1,9 @@
-#include "grblQueue.hpp"
+#include "grbl_queue.hpp"
 #include "esp_log.h"
 
 static const char *TAG = "grblQueue";
 
-// Вспомогательный RAII класс для безопасного взятия/освобождения SemaphoreHandle_t
+// A helper RAII class for safely acquiring and releasing a SemaphoreHandle_t
 class MutexLock 
 {
 private:
@@ -126,25 +126,25 @@ bool GrblCommandBuffer::push(grbl_command_t&& cmd, bool high_priority)
 
 std::optional<grbl_command_t> GrblCommandBuffer::peek() 
 {
-    // Сначала проверяем приоритетную UDP очередь
+    // First check the priority UDP queue
     if (auto cmd = _udp_queue.peek()) 
     {
         return cmd;
     }
 
-    // Если UDP пуста, смотрим в UART
+    // If UDP is empty, check UART
     return _uart_queue.peek();
 }
 
 std::optional<grbl_command_t> GrblCommandBuffer::pop() 
 {
-    // Сначала выгребаем приоритетные команды из UDP
+    // First remove the priority UDP queue
     if (auto cmd = _udp_queue.pop()) 
     {
         return cmd;
     }
 
-    // Если приоритетных нет, обрабатываем UART
+    // If there are no priority events, process the UART
     return _uart_queue.pop();
 }
 

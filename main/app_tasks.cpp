@@ -2,7 +2,7 @@
 #include "motion/motion.h"
 #include <stdio.h>
 #include <string.h>
-#include "grblQueue.hpp"
+#include "grbl_queue.hpp"
 #include "grbl_parser.h"
 #include "esp_log.h"
 #include "lwip/sockets.h"

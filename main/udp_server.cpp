@@ -42,7 +42,7 @@ static void got_ip_event_handler(void *arg, esp_event_base_t event_base, int32_t
     xSemaphoreGive(got_ip_sem);
 }
 
-// Функция для генерации локального MAC-адреса
+// Generate local MAC-adress
 static void get_local_mac(uint8_t *mac_out) 
 {
     uint8_t base_mac[6];

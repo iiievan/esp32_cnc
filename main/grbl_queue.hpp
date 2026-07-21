@@ -1,5 +1,5 @@
-#ifndef GRBLQUEUE_H
-#define GRBLQUEUE_H
+#ifndef GRBL_QUEUE_H
+#define GRBL_QUEUE_H
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -24,12 +24,12 @@ typedef struct
 
 
 /**
- * @brief Обертка над ring_buffer, добавляющая потокобезопасность на уровне FreeRTOS мьютексов
+ * @brief A wrapper around `ring_buffer` that provides thread safety at the FreeRTOS mutex level
  */
 class SafeGrblQueue 
 {
 private:
-    UTIL::ring_buffer<grbl_command_t, QUEUE_SIZE> _buffer;
+    UTILS::ring_buffer<grbl_command_t, QUEUE_SIZE> _buffer;
     SemaphoreHandle_t _mutex;
 
 public:
@@ -51,7 +51,7 @@ public:
 };
 
 /**
- * @brief Менеджер очередей GRBL (Управляет UDP и UART потоками)
+ * @brief GRBL Queue Manager (Manages UDP and UART streams)
  */
 class GrblCommandBuffer 
 {
@@ -71,4 +71,4 @@ public:
 
 extern GrblCommandBuffer grbl_cmd_dispatcher;
 
-#endif // GRBLQUEUE_H
+#endif // GRBL_QUEUE_H

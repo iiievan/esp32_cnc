@@ -11,12 +11,11 @@
 // Abstraction for interrupt handling (for portability between Ubuntu, ESP32, and STM32)
 // Configure these macros for your target platform
 #ifndef LOCK_INTERRUPTS
-    static SemaphoreHandle_t ring_mutex = xSemaphoreCreateMutex(); 
-    #define LOCK_INTERRUPTS()   xSemaphoreTake(ring_mutex, portMAX_DELAY);// For Example: __disable_interrupt(); или taskENTER_CRITICAL();
-    #define UNLOCK_INTERRUPTS() xSemaphoreGive(ring_mutex);// For Example: __enable_interrupt(); или taskEXIT_CRITICAL();
+    #define LOCK_INTERRUPTS()   // For Example: __disable_interrupt(); или taskENTER_CRITICAL();
+    #define UNLOCK_INTERRUPTS() // For Example: __enable_interrupt(); или taskEXIT_CRITICAL();
 #endif
 
-namespace UTIL {
+namespace UTILS {
 
 template <typename T, std::size_t buf_size = 16>
 class ring_buffer 
@@ -45,7 +44,7 @@ public:
 
     /**
      * @brief Retrieves a single element from the buffer.
-     * Returns std::nullopt if the buffer is empty.
+     * @return std::nullopt if the buffer is empty.
      */
     std::optional<T> get_one() 
     {
@@ -237,4 +236,4 @@ public:
     T* get_buf_pointer() { return _queue; }
 };
 
-} // namespace MATH
+} // namespace UTILS
