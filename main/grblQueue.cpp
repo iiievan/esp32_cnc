@@ -31,7 +31,7 @@ SafeGrblQueue::SafeGrblQueue()
         ESP_LOGE(TAG, "Failed to create queue mutex");
     }
 
-    _buffer.reset();
+    _buffer.reset_to_zero();
 }
 
 SafeGrblQueue::~SafeGrblQueue() 

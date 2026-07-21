@@ -5,10 +5,6 @@
 extern "C" {
 #endif
 
-#define INVALID_SOCKET      -1
-#define UDP_BUFFER_SIZE     256
-#define UART_BUFFER_SIZE    256
-
 void udp_server_task(void *arg);
 
 void uart_grbl_task(void *arg);

@@ -71,13 +71,13 @@ void udp_server_task(void *arg)
 
     ESP_LOGI(TAG_UDP, "UDP Server listening on port %d", CONFIG_EXAMPLE_SERVER_PORT);
 
-    char rx_buffer[UDP_BUFFER_SIZE];
+    char rx_buffer[MAX_CMD_LENGTH];
     struct sockaddr_in client_addr;
     socklen_t client_addr_len = sizeof(client_addr);
 
     while (1)
     {
-        int len = recvfrom(server_fd, rx_buffer, UDP_BUFFER_SIZE - 1, 0,
+        int len = recvfrom(server_fd, rx_buffer, MAX_CMD_LENGTH - 1, 0,
                            (struct sockaddr *)&client_addr, &client_addr_len);
 
         if (len < 0)
@@ -126,12 +126,12 @@ void uart_grbl_task(void *arg)
                                  CONFIG_GRBL_UART_RX_PIN,
                                  UART_PIN_NO_CHANGE,
                                  UART_PIN_NO_CHANGE));
-    ESP_ERROR_CHECK(uart_driver_install(uart_num, UART_BUFFER_SIZE * 2, UART_BUFFER_SIZE * 2, 0, NULL, 0));
+    ESP_ERROR_CHECK(uart_driver_install(uart_num, 256 * 2, 256 * 2, 0, NULL, 0));
 
     ESP_LOGI(TAG_UART, "UART1 GRBL server on TX=%d RX=%d baud=%d",
              CONFIG_GRBL_UART_TX_PIN, CONFIG_GRBL_UART_RX_PIN, CONFIG_GRBL_UART_BAUD_RATE);
 
-    char line_buffer[UART_BUFFER_SIZE];
+    char line_buffer[MAX_CMD_LENGTH];
     size_t line_len = 0;
 
     while (1)
@@ -167,7 +167,7 @@ void uart_grbl_task(void *arg)
             continue;
         }
 
-        if (line_len < UART_BUFFER_SIZE - 1)
+        if (line_len < MAX_CMD_LENGTH - 1)
         {
             line_buffer[line_len++] = (char)byte;
         }
@@ -188,27 +188,33 @@ void planner_task(void *arg)
             grbl_command_t cmd = *cmd_opt;
 
             if (mr.block_state != BLOCK_RUNNING)
-            {
-                grbl_cmd_dispatcher.pop();
-
+            {  
                 if (is_zero_move_default(cmd.target_x, cmd.target_y) || 
                    (!cmd.is_urgent && !cmd.is_motion))
+                {
+                    grbl_cmd_dispatcher.pop();
                     continue;
+                }                    
 
                 if (mp_aline(cmd.target_x, cmd.target_y, cmd.speed))
                 {
                     ESP_LOGI(TAG_UDP, "Planner: move started to (%.2f, %.2f, %.2f)",
                              cmd.target_x, cmd.target_y, cmd.speed);
+                             
+                    grbl_cmd_dispatcher.pop();
+
+                    // Wait for completion ONLY if the movement is actually taking place
+                    // (if the position has changed and the timer has started)
+                    if (mr.block_state != BLOCK_IDLE || motion_complete_sem != NULL)
+                    {
+                        xSemaphoreTake(motion_complete_sem, portMAX_DELAY);
+                    }
                 }
                 else
+                {
                     ESP_LOGE(TAG_UDP, "Planner: move failed");
-            }
-            else
-            {
-                if (motion_complete_sem != NULL)
-                    xSemaphoreTake(motion_complete_sem, portMAX_DELAY);
-                else
-                    vTaskDelay(pdMS_TO_TICKS(10));
+                    vTaskDelay(pdMS_TO_TICKS(10)); 
+                }
             }
         }
         else
