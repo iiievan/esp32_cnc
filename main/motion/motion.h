@@ -8,10 +8,9 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_log.h"
+#include "linear_algebra.hpp"
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+
 
 #define DBG_PLANNER_LOG
 
@@ -27,13 +26,6 @@ extern "C" {
 #define NOM_SEGMENT_USEC        (5000)
 #define NOM_SEGMENT_TIME        (NOM_SEGMENT_USEC / MICROSECONDS_PER_MINUTE)
 
-#define square(x)               ((x)*(x))
-#define max(a,b)                (((a)>(b))?(a):(b))
-#define min(a,b)                (((a)<(b))?(a):(b))
-#define max3(a,b,c)             max(max(a,b),c)
-#define min3(a,b,c)             min(min(a,b),c)
-#define max4(a,b,c,d)           max(max(a,b),max(c,d))
-#define min4(a,b,c,d)           min(min(a,b),min(c,d))
 #define EPSILON		            ((float)0.00001)		// allowable rounding error for floats
 #define fp_ZERO(x)              (fabs(x) < EPSILON)
 #define fp_EQ(a,b)              (fabs((a)-(b)) < EPSILON)
@@ -85,10 +77,11 @@ typedef struct
     .junction_dev = 0.01f \
 }
 
+
 // Gcode model state - used by model, planning and runtime
 typedef struct GCodeState 
 {											
-	float target[AXES]; 				// XYZABC where the move should go
+	MATH::Vector2D<float> target; 				// XYZABC where the move should go
 	float move_time;					// optimal time for move given axis constraints
 	float minimum_time;					// minimum time possible for move given axis constraints
 	float feed_rate; 					// F - normalized to millimeters/minute or in inverse time mode
@@ -99,7 +92,7 @@ typedef struct mpBuf
 {
     blockState_t block_state;
 
-    float unit[AXES];
+    MATH::Vector2D<float> unit;
     float length;
     float head_length;
     float body_length;
@@ -147,10 +140,10 @@ typedef struct mpBuf
     .gm = {} \
 }
 
-// Глобальные структуры (mm - master, mr - runtime)
+// Global structs (mm - master, mr - runtime)
 typedef struct 
 {
-    float position[AXES];      // текущая позиция в мм
+    MATH::Vector2D<float> position;      // in mm
     float jerk;
     float recip_jerk;
     float cbrt_jerk;
@@ -169,10 +162,10 @@ typedef struct
     moveSection_t section;
     sectionState_t section_state;
     
-    float unit[AXES];
-    float target[AXES];
-    float position[AXES];
-    float waypoint[SECTIONS][AXES];   // head, body, tail endpoints   
+    MATH::Vector2D<float> unit;
+    MATH::Vector2D<float> target;
+    MATH::Vector2D<float> position;
+    MATH::Vector2D<float> waypoint[SECTIONS];   // head, body, tail endpoints   
     
     float head_length;
     float body_length;
@@ -254,9 +247,5 @@ static inline bool is_zero_move_default(float target_x, float target_y)
 {
     return is_zero_move(target_x, target_y, NULL, NULL);
 }
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif  //_MOTION_PLANNER_H

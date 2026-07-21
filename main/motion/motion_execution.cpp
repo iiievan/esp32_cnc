@@ -14,7 +14,7 @@ static inline void log_promt()
 
 static inline void log_out(int T_ms, int dt_ms)
 {
-    ESP_LOGI(TAG, "%.3f:%.3f:%.2f:%d:%d", mr.position[0], mr.position[1], 
+    ESP_LOGI(TAG, "%.3f:%.3f:%.2f:%d:%d", mr.position.x, mr.position.y, 
                                           mr.segment_velocity * 60.0f, 
                                           T_ms, 
                                           dt_ms);
@@ -33,27 +33,24 @@ static stat_t _exec_aline_segment(void)
     // Если это последний сегмент и мы в конце секции — используем waypoint
     if (mr.segment_count == 0 && mr.section_state == SECTION_2nd_HALF) 
     {
-        copy_vector(mr.gm.target, mr.waypoint[mr.section]);
+        mr.gm.target = mr.waypoint[mr.section];
     } 
     else 
     {
         float segment_length = mr.segment_velocity * mr.segment_time;
-        for (uint8_t i = 0; i < AXES; i++) 
-        {
-			mr.gm.target[i] = mr.position[i] + (mr.unit[i] * segment_length);
-        }
+		mr.gm.target = mr.position + (mr.unit * segment_length);
     }
 
 #ifdef DBG_EXE_LOG
     static moveSection_t old_section = SECTION_NA;
     if (mr.section != old_section) 
     {
-        ESP_LOGI(TAG, "Pos old:%.3f, %.3f", mr.position[0], mr.position[1]);
+        ESP_LOGI(TAG, "Pos old:%.3f, %.3f", mr.position.x, mr.position.x);
         old_section = mr.section;
     }
 #endif    
     
-    copy_vector(mr.position, mr.gm.target); // Обновляем позицию из mr.gm.target для нового сегмента
+    mr.position = mr.gm.target; // Обновляем позицию из mr.gm.target для нового сегмента
 
     static int64_t last_log_time = 0;    
     const int64_t now = esp_timer_get_time();
@@ -99,16 +96,14 @@ stat_t mp_exec_aline(mpBuf_t *bf)
         mr.cruise_velocity = bf->cruise_velocity;
         mr.exit_velocity = bf->exit_velocity;
 
-        copy_vector(mr.unit, bf->unit);
-        copy_vector(mr.target, bf->gm.target);          
+        mr.unit = bf->unit;
+        mr.target = bf->gm.target;          
         
         // Вычисляем waypoints для коррекции позиции
-        for (int i = 0; i < AXES; i++) 
-        {
-            mr.waypoint[SECTION_HEAD][i] = mr.position[i] + mr.unit[i] * mr.head_length;
-            mr.waypoint[SECTION_BODY][i] = mr.position[i] + mr.unit[i] * (mr.head_length + mr.body_length);
-            mr.waypoint[SECTION_TAIL][i] = mr.position[i] + mr.unit[i] * (mr.head_length + mr.body_length + mr.tail_length);
-        }
+        mr.waypoint[SECTION_HEAD] = mr.position + mr.unit * mr.head_length;
+        mr.waypoint[SECTION_BODY] = mr.position + mr.unit * (mr.head_length + mr.body_length);
+        mr.waypoint[SECTION_TAIL] = mr.position + mr.unit * (mr.head_length + mr.body_length + mr.tail_length);
+
         
         mr.block_state = BLOCK_RUNNING;
     }
@@ -139,11 +134,11 @@ stat_t mp_exec_aline(mpBuf_t *bf)
         mr.block_state = BLOCK_IDLE;
         bf->block_state = BLOCK_IDLE;
 
-        copy_vector(mm.position, mr.position);
+        mm.position = mr.position;
 
         stop_motion_timer();
 
-        ESP_LOGI(TAG, "MOVE COMPLETED AT (%.2f, %.2f)", mr.position[0], mr.position[1]);
+        ESP_LOGI(TAG, "MOVE COMPLETED AT (%.2f, %.2f)", mr.position.x, mr.position.x);
         
         if (motion_complete_sem != NULL) 
         {

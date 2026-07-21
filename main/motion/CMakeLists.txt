@@ -4,6 +4,7 @@ idf_component_register(
         "motion_execution.cpp"
         "motion_utils.cpp"
         "motion_timer.cpp"
+        "linear_algebra.hpp" 
     INCLUDE_DIRS "."
     REQUIRES 
         driver

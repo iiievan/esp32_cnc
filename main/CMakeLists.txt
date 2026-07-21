@@ -4,7 +4,7 @@ idf_component_register(
         "app_tasks.cpp"
         "ring_buffer.hpp"
         "grbl_queue.cpp"
-        "grbl_parser.cpp"       
+        "grbl_parser.cpp" 
     PRIV_REQUIRES 
         esp_eth 
         esp_netif
