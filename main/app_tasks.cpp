@@ -1,5 +1,6 @@
 #include "app_tasks.h"
-#include "motion/motion.h"
+#include "motion/motion.hpp"
+#include "motion/motion_planner.hpp"
 #include <stdio.h>
 #include <string.h>
 #include "grbl_queue.hpp"
@@ -12,6 +13,8 @@
 
 static const char *TAG_UDP = "udp_grbl_server";
 static const char *TAG_UART = "uart_grbl_server";
+
+extern MotionPlanner* G_plnr;
 
 static bool build_grbl_command(const char *line, grbl_command_t *cmd, parsed_command_t *parsed)
 {
@@ -183,20 +186,27 @@ void planner_task(void *arg)
 {
     while (1)
     {
+        if(G_plnr == nullptr)
+        {
+            vTaskDelay(pdMS_TO_TICKS(100));
+            ESP_LOGW(TAG_UDP, "Planner not initialized yet, waiting...");
+            continue;
+        }
+
         if (auto cmd_opt = grbl_cmd_dispatcher.peek())
         {
             grbl_command_t cmd = *cmd_opt;
 
-            if (mr.block_state != BLOCK_RUNNING)
+            if (!G_plnr->is_busy())
             {  
-                if (is_zero_move_default(cmd.target_x, cmd.target_y) || 
+                if (G_plnr->is_zero_move(cmd.target_x, cmd.target_y, NULL, NULL) || 
                    (!cmd.is_urgent && !cmd.is_motion))
                 {
                     grbl_cmd_dispatcher.pop();
                     continue;
                 }                    
 
-                if (mp_aline(cmd.target_x, cmd.target_y, cmd.speed))
+                if (G_plnr->plan_linear_move(cmd.target_x, cmd.target_y, cmd.speed))
                 {
                     ESP_LOGI(TAG_UDP, "Planner: move started to (%.2f, %.2f, %.2f)",
                              cmd.target_x, cmd.target_y, cmd.speed);
@@ -205,10 +215,7 @@ void planner_task(void *arg)
 
                     // Wait for completion ONLY if the movement is actually taking place
                     // (if the position has changed and the timer has started)
-                    if (mr.block_state != BLOCK_IDLE || motion_complete_sem != NULL)
-                    {
-                        xSemaphoreTake(motion_complete_sem, portMAX_DELAY);
-                    }
+                    if (!G_plnr->is_idle()) { G_plnr->wait_for_completion(portMAX_DELAY); }
                 }
                 else
                 {

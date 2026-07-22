@@ -1,5 +1,5 @@
-#ifndef _MOTION_PLANNER_H
-#define _MOTION_PLANNER_H
+#ifndef _MOTION_H
+#define _MOTION_H
 
 #include <math.h>
 #include <string.h>
@@ -9,8 +9,6 @@
 #include "freertos/task.h"
 #include "esp_log.h"
 #include "linear_algebra.hpp"
-
-
 
 #define DBG_PLANNER_LOG
 
@@ -77,6 +75,23 @@ typedef struct
     .junction_dev = 0.01f \
 }
 
+struct Axis 
+{
+    float jerk_max;
+    float recip_jerk;
+    float junction_dev;
+
+    Axis(float max_jerk = 25.0f, float dev = 0.01f) 
+        : jerk_max(max_jerk), junction_dev(dev) 
+    {
+        recip_jerk = 1.0f / jerk_max;
+    }
+
+    // Геттеры
+    float get_jerk_max() const { return jerk_max; }
+    float get_recip_jerk() const { return recip_jerk; }
+    float get_junction_dev() const { return junction_dev; }
+};
 
 // Gcode model state - used by model, planning and runtime
 typedef struct GCodeState 
@@ -215,37 +230,8 @@ typedef struct
     .gm = {} \
 }
 
-extern mpMoveMaster_t      mm;
-extern mpMoveRuntime_t     mr;
-extern mpBuf_t             bf; 
-extern SemaphoreHandle_t bf_mutex;
-extern SemaphoreHandle_t motion_complete_sem;
-
-void mp_init(void);
-bool mp_aline(float target_x, float target_y, float feed_rate);
-stat_t mp_exec_aline(mpBuf_t *bf);
-
-static inline float uSec(float minutes) { return minutes * MICROSECONDS_PER_MINUTE; }
-float mp_get_target_velocity(const float Vi, const float L, const mpBuf_t *bf);
-float mp_get_target_length(const float Vi, const float Vf, const mpBuf_t *bf);
 const char* block_state_to_str(blockState_t state); 
 const char* section_to_str(moveSection_t section); 
 const char* section_state_to_str(sectionState_t state);
 
-/**
- * @brief Проверяет, является ли перемещение нулевым
- * @param target_x Целевая X координата
- * @param target_y Целевая Y координата
- * @param current_x Текущая X координата (опционально, если NULL - использует mm.position)
- * @param current_y Текущая Y координата (опционально, если NULL - использует mm.position)
- * @param tolerance Допуск в мм (по умолчанию 0.001)
- * @return true если перемещение нулевое (в пределах допуска)
- */
-bool is_zero_move(float target_x, float target_y, const float* current_x, const float* current_y);
-
-static inline bool is_zero_move_default(float target_x, float target_y) 
-{
-    return is_zero_move(target_x, target_y, NULL, NULL);
-}
-
-#endif  //_MOTION_PLANNER_H
+#endif  //_MOTION_H

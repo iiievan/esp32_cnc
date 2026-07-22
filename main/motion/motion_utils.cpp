@@ -1,22 +1,8 @@
-#include "motion.h"
+#include "motion_planner.hpp"
 
 static const char *TAG = "MOT_TRACK";
 
-float mp_get_target_velocity(const float Vi, const float L, const mpBuf_t *bf) 
-{
-    float J = bf->jerk;
-    float Vf = Vi + (L * J / bf->cbrt_jerk) / 2.0f;
-    return Vf;
-}
-
-float mp_get_target_length(const float Vi, const float Vf, const mpBuf_t *bf) 
-{
-    float J = bf->jerk;
-    float L = (Vf - Vi) * bf->cbrt_jerk * 2.0f / J;
-    return L;
-}
-
-const char* block_state_to_str(blockState_t state) 
+const char* MotionPlanner::block_state_to_str(blockState_t state) const noexcept
 {
     switch(state) 
     {
@@ -27,7 +13,7 @@ const char* block_state_to_str(blockState_t state)
     }
 }
 
-const char* section_to_str(moveSection_t section) 
+const char* MotionPlanner::section_to_str(moveSection_t section) const noexcept
 {
     switch(section) 
     {
@@ -39,7 +25,7 @@ const char* section_to_str(moveSection_t section)
     }
 }
 
-const char* section_state_to_str(sectionState_t state) 
+const char* MotionPlanner::section_state_to_str(sectionState_t state) const noexcept
 {
     switch(state) 
     {
@@ -51,33 +37,33 @@ const char* section_state_to_str(sectionState_t state)
     }
 }
 
-void track_motion_states()
+void MotionPlanner::track_motion_states() const noexcept
 {
     static blockState_t old_block_state = BLOCK_IDLE;
     static moveSection_t old_section = SECTION_NA;
     static sectionState_t old_section_state = SECTION_OFF;
 
-    if (mr.block_state != old_block_state) 
+    if (_mr.block_state != old_block_state) 
     {
         ESP_LOGI(TAG, "Block state: %s -> %s", 
                  block_state_to_str(old_block_state), 
-                 block_state_to_str(mr.block_state));
-        old_block_state = mr.block_state;
+                 block_state_to_str(_mr.block_state));
+        old_block_state = _mr.block_state;
     }
 
-    if (mr.section != old_section) 
+    if (_mr.section != old_section) 
     {
         ESP_LOGI(TAG, "Section: %s -> %s", 
                  section_to_str(old_section), 
-                 section_to_str(mr.section));
-        old_section = mr.section;
+                 section_to_str(_mr.section));
+        old_section = _mr.section;
     }
 
-    if (mr.section_state != old_section_state) 
+    if (_mr.section_state != old_section_state) 
     {
         ESP_LOGI(TAG, "Section state: %s -> %s", 
                  section_state_to_str(old_section_state), 
-                 section_state_to_str(mr.section_state));
-        old_section_state = mr.section_state;
+                 section_state_to_str(_mr.section_state));
+        old_section_state = _mr.section_state;
     }
 }

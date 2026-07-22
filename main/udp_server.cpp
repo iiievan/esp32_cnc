@@ -3,7 +3,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "app_tasks.h"
-#include "motion/motion.h"
+#include "motion/motion.hpp"
 #include "esp_netif.h"
 #include "esp_eth.h"
 #include "esp_mac.h"
@@ -15,9 +15,11 @@
 #include "driver/gpio.h"
 #include "lwip/sockets.h"
 #include "sdkconfig.h"
+#include "motion_planner.hpp"
 
 static const char *TAG = "ethernet_init";
 static SemaphoreHandle_t got_ip_sem;
+extern MotionPlanner* G_plnr;
 
 // Waveshare ESP32-S3-ETH pins to W5500
 #define PIN_SPI_MOSI        (11)
@@ -121,7 +123,8 @@ extern "C" void app_main()
         return;
     }
 
-    mp_init();  // init motion planner
+    G_plnr = new MotionPlanner();
+    G_plnr->init();
 
     xTaskCreate(udp_server_task, "udp_server", 8192, NULL, 5, NULL);
     xTaskCreate(uart_grbl_task, "uart_grbl", 4096, NULL, 5, NULL);
