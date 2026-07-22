@@ -27,7 +27,6 @@
 #define EPSILON		            ((float)0.00001)		// allowable rounding error for floats
 #define fp_ZERO(x)              (fabs(x) < EPSILON)
 #define fp_EQ(a,b)              (fabs((a)-(b)) < EPSILON)
-#define	copy_vector(d,s)        (memcpy(d,s,sizeof(d)))
 
 typedef enum 
 {
@@ -62,19 +61,6 @@ typedef enum
     SECTION_2nd_HALF
 } sectionState_t;
 
-typedef struct 
-{
-    float jerk_max;
-    float recip_jerk;
-    float junction_dev;
-} axis_param_t;
-
-#define AXIS_PARAM_DEFAULT() { \
-    .jerk_max = 25.0f, \
-    .recip_jerk = 1.0f, \
-    .junction_dev = 0.01f \
-}
-
 struct Axis 
 {
     float jerk_max;
@@ -87,7 +73,6 @@ struct Axis
         recip_jerk = 1.0f / jerk_max;
     }
 
-    // Геттеры
     float get_jerk_max() const { return jerk_max; }
     float get_recip_jerk() const { return recip_jerk; }
     float get_junction_dev() const { return junction_dev; }

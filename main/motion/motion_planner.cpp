@@ -81,16 +81,16 @@ MotionPlanner::~MotionPlanner(void)
         _motion_timer = nullptr;
     }
 
-    if (_bf_mutex != NULL) 
+    if (_bf_mutex != nullptr) 
     {
         vSemaphoreDelete(_bf_mutex);
-        _bf_mutex = NULL;
+        _bf_mutex = nullptr;
     }
 
-    if (_motion_complete_sem == NULL) 
+    if (_motion_complete_sem != nullptr) 
     {
         vSemaphoreDelete(_motion_complete_sem);
-        _motion_complete_sem = NULL;
+        _motion_complete_sem = nullptr;
     }
 }
 
@@ -145,7 +145,7 @@ bool MotionPlanner::plan_linear_move(float target_x, float target_y, float feed_
              target_x, target_y, feed_rate);
     ESP_LOGI(TAG, "  _mm.position = (%.2f, %.2f)", _mm.position.x, _mm.position.y);
 
-    if (_mr.block_state == BLOCK_RUNNING) 
+    if (_block_state.load(std::memory_order_acquire) == BLOCK_RUNNING) 
     {
         ESP_LOGW(TAG, "Planner busy, cannot start new move");
         return false;
@@ -156,6 +156,7 @@ bool MotionPlanner::plan_linear_move(float target_x, float target_y, float feed_
         ESP_LOGW(TAG, "Zero length move to (%.2f, %.2f) - skipping", target_x, target_y);
 
         _mm.position = Vector2D<float>(target_x,target_y);
+        if (_motion_complete_sem != nullptr) { xSemaphoreGive(_motion_complete_sem); }
 
         return true; // Возвращаем true, так как уже в этой позиции
     }
@@ -338,7 +339,7 @@ stat_t MotionPlanner::execute_move()
         _mr.waypoint[SECTION_TAIL] = _mr.position + _mr.unit * (_mr.head_length + _mr.body_length + _mr.tail_length);
 
         
-        _mr.block_state = BLOCK_RUNNING;
+        _block_state.store(BLOCK_RUNNING, std::memory_order_release);
     }
     
     stat_t status = STAT_OK;
@@ -369,7 +370,9 @@ stat_t MotionPlanner::execute_move()
 
         _mm.position = _mr.position;
 
-        stop_timer();
+        _stop_requested.store(true); 
+        // Не вызываем stop_timer() здесь!
+        //stop_timer();     
 
         ESP_LOGI(TAGE, "MOVE COMPLETED AT (%.2f, %.2f)", _mr.position.x, _mr.position.y);
         
@@ -664,9 +667,15 @@ stat_t MotionPlanner::exec_tail(void)
 
 void MotionPlanner::timer_callback(void* arg) 
 {
+    if (arg == nullptr) return;
     auto* planner = static_cast<MotionPlanner*>(arg);
 
-    if (xSemaphoreTake(planner->_bf_mutex, 0) == pdTRUE && planner != nullptr) 
+    if (planner->_stop_requested.load()) 
+    {
+        return; // Выходим, не останавливая таймер
+    }
+
+    if (xSemaphoreTake(planner->_bf_mutex, 0) == pdTRUE) 
     {
         planner->execute_move(); 
 
@@ -696,6 +705,15 @@ void MotionPlanner::stop_timer()
     {
         ESP_ERROR_CHECK(esp_timer_stop(_motion_timer));
         _timer_running = false;
+    }
+}
+
+void MotionPlanner::check_timer_stop() 
+{
+    if (_stop_requested.load() && _timer_running) 
+    {
+        stop_timer();  // Останавливаем из безопасного контекста
+        _stop_requested.store(false);
     }
 }
 

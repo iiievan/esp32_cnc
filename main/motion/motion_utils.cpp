@@ -37,12 +37,8 @@ const char* MotionPlanner::section_state_to_str(sectionState_t state) const noex
     }
 }
 
-void MotionPlanner::track_motion_states() const noexcept
+void MotionPlanner::track_motion_states() noexcept
 {
-    static blockState_t old_block_state = BLOCK_IDLE;
-    static moveSection_t old_section = SECTION_NA;
-    static sectionState_t old_section_state = SECTION_OFF;
-
     if (_mr.block_state != old_block_state) 
     {
         ESP_LOGI(TAG, "Block state: %s -> %s", 

@@ -192,6 +192,8 @@ void planner_task(void *arg)
             ESP_LOGW(TAG_UDP, "Planner not initialized yet, waiting...");
             continue;
         }
+        
+        G_plnr->check_timer_stop();
 
         if (auto cmd_opt = grbl_cmd_dispatcher.peek())
         {
